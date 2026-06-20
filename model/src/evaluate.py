@@ -111,9 +111,7 @@ def main():
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent.parent
-
-    metadata_paths = list(root.glob("API Info/**/dataset_metadata*.csv"))
-    metadata_paths += list(root.glob("API Info/**/metadata_ai.csv"))
+    metadata_paths = list(root.glob("dataset/metadata/*.csv"))
 
     from .dataset import create_dataloaders
     _, val_loader = create_dataloaders(

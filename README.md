@@ -34,8 +34,14 @@ ai-image-detection-research/
 ├── paper/                          # Q1 journal manuscript
 │   └── manuscript.md              # Full paper with 37+ references
 │
-├── API Info/                       # Existing dataset collectors (v1/v2/v3)
-│   └── API v3/                    # Latest collector — 50K image pipeline
+├── dataset/                        # Consolidated dataset (50K images)
+│   ├── images/                     # Excluded from git (17 GB)
+│   │   ├── real/                   #   17,903 real photos
+│   │   ├── ai_generated/           #   3,481 AI-generated
+│   │   └── ai_altered/             #  28,616 AI-altered deepfakes
+│   ├── metadata/all.csv            # Consolidated metadata
+│   ├── collectors/                 # Collection scripts
+│   └── docs/                       # Documentation
 │
 ├── compose.yaml                    # Docker Compose (API + Web + Nginx)
 ├── Dockerfile.api
@@ -44,30 +50,31 @@ ai-image-detection-research/
 └── README.md
 ```
 
-## Dataset Inventory
+## Full Project Context
 
-| Source | Count |
-|--------|-------|
-| Real photos (Unsplash, Pexels, Pixabay) | ~18,659 |
-| AI-generated (CivitAI, DiffusionDB, Pollinations) | ~3,754 |
-| AI-altered deepfakes (face swap, inpaint, outpaint, style) | ~7,500 |
-| **Total available** | **~29,913** |
+See [`PROJECT_CONTEXT.md`](./PROJECT_CONTEXT.md) for complete architecture, commands, dataset status, and next steps.
 
 ## Quick Start
 
 ### 1. Train the model
 ```bash
-python -m model.src.train
+cd model
+pip install -r requirements.txt
+python -m src.train
 ```
 
 ### 2. Start the API
 ```bash
-cd api && uvicorn main:app --reload
+cd api
+pip install -r requirements.txt
+uvicorn main:app --reload
 ```
 
 ### 3. Start the website
 ```bash
-cd web && npm run dev
+cd web
+npm install
+npm run dev
 ```
 
 ### 4. Production deployment

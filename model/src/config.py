@@ -42,7 +42,7 @@ class DatasetConfig:
     metadata_paths: List[str] = field(default_factory=lambda: [
         os.path.join(os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..")
-        ), "API Info", "API v3", "ai_dataset_50k", "dataset_metadata_real.csv"),
+        ), "dataset", "metadata", "all.csv"),
     ])
     undersample: bool = True
     val_split: float = 0.15
@@ -53,7 +53,7 @@ class DatasetConfig:
             os.path.join(os.path.dirname(__file__), "..", "..")
         )
         self.metadata_paths = [
-            os.path.join(root, "API Info", "API v3", "ai_dataset_50k", "dataset_metadata_real.csv"),
+            os.path.join(root, "dataset", "metadata", "all.csv"),
         ]
 
 

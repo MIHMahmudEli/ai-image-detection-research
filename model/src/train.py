@@ -272,11 +272,7 @@ def main():
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     metadata_paths = [
-        os.path.join(root, "API Info", "API v3", "ai_dataset_50k", "dataset_metadata_real.csv"),
-        os.path.join(root, "API Info", "API v2", "ai_dataset", "dataset_metadata_ai.csv"),
-        os.path.join(root, "API Info", "API v2", "ai_dataset", "dataset_metadata.csv"),
-        os.path.join(root, "API Info", "API v2", "ai_dataset", "dataset_metadata_all.csv"),
-        os.path.join(root, "API Info", "API v1", "ai_detection_dataset", "dataset_metadata.json"),
+        os.path.join(root, "dataset", "metadata", "all.csv"),
     ]
     existing_metadata = [p for p in metadata_paths if os.path.exists(p)]
     print(f"Found {len(existing_metadata)} metadata files")

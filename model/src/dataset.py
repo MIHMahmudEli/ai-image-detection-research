@@ -97,13 +97,11 @@ class AIDetectionDataset(Dataset):
                         self.samples.append((str(img_path), label))
 
     def _resolve_image_dir(self, metadata_path: Path, df: pd.DataFrame) -> Optional[Path]:
-        base = metadata_path.parent.parent
+        base = metadata_path.parent.parent.parent / "images"
         candidates = [
-            base / "images",
-            base / "real_images",
-            base / "ai_generated_images",
-            base / "ai_generated_dataset" / "images",
-            base / "ai_altered_dataset" / "images",
+            base / "real",
+            base / "ai_generated",
+            base / "ai_altered",
         ]
         for c in candidates:
             if c.exists():

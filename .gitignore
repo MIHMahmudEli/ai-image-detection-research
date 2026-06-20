@@ -25,22 +25,19 @@ web/node_modules/
 web/.next/
 web/out/
 
-# Dataset images (too large)
-**/real_images/
-**/ai_generated_images/
-**/ai_altered_images/
-**/images/
+# Dataset images (too large — 17 GB)
+dataset/images/
+dataset/metadata/*.csv
+dataset/metadata/*.json
+dataset/.env
+
+# Image files anywhere
 *.jpg
 *.jpeg
 *.png
 *.webp
-!**/figures/*.png
 !**/public/*.png
 !**/public/*.jpg
-
-# Metadata CSVs can be large
-**/dataset_metadata*.csv
-**/metadata_ai.csv
 
 # Logs
 *.log
