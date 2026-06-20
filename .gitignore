@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Model checkpoints
+model/checkpoints/*.pt
+model/checkpoints/*.pth
+
+# API keys
+.env
+**/.env
+!**/.env.example
+
+# Web
+web/node_modules/
+web/.next/
+web/out/
+
+# Dataset images (too large)
+**/real_images/
+**/ai_generated_images/
+**/ai_altered_images/
+**/images/
+*.jpg
+*.jpeg
+*.png
+*.webp
+!**/figures/*.png
+!**/public/*.png
+!**/public/*.jpg
+
+# Metadata CSVs can be large
+**/dataset_metadata*.csv
+**/metadata_ai.csv
+
+# Logs
+*.log
