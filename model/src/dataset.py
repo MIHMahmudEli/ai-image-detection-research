@@ -85,51 +85,52 @@ class AIDetectionDataset(Dataset):
                     print(f"  Warning: cannot read {p}")
                     continue
 
-            image_dir = self._resolve_image_dir(p, df)
-            if image_dir is None:
+            image_dirs = self._resolve_image_dirs(p, df)
+            if not image_dirs:
                 continue
 
             for _, row in df.iterrows():
-                img_path = self._resolve_image_path(row, image_dir)
+                img_path = self._resolve_image_path(row, image_dirs)
                 if img_path and img_path.exists():
                     label = self._get_label(row)
                     if label is not None:
                         self.samples.append((str(img_path), label))
 
-    def _resolve_image_dir(self, metadata_path: Path, df: pd.DataFrame) -> Optional[Path]:
-        base = metadata_path.parent.parent.parent / "images"
+    def _resolve_image_dirs(self, metadata_path: Path, df: pd.DataFrame) -> List[Path]:
+        base = metadata_path.parent.parent / "images"
         candidates = [
             base / "real",
             base / "ai_generated",
             base / "ai_altered",
         ]
-        for c in candidates:
-            if c.exists():
-                return c
+        existing = [c for c in candidates if c.exists()]
+        if existing:
+            return existing
 
         if 'filename' in df.columns:
             first_file = str(df['filename'].iloc[0])
-            for c in candidates:
-                if (c / first_file).exists():
-                    return c
+            valid = [c for c in candidates if (c / first_file).exists()]
+            if valid:
+                return valid
 
         print(f"  Warning: cannot resolve image dir for {metadata_path}")
-        return None
+        return []
 
-    def _resolve_image_path(self, row: pd.Series, image_dir: Path) -> Optional[Path]:
-        if 'filename' in row and pd.notna(row['filename']):
-            p = image_dir / row['filename']
-            if p.exists():
-                return p
-            p = Path(str(row['filename']))
-            if p.exists():
-                return p
-
-        if 'image_id' in row and pd.notna(row['image_id']):
-            for ext in ['.jpg', '.jpeg', '.png', '.webp']:
-                p = image_dir / f"{row['image_id']}{ext}"
+    def _resolve_image_path(self, row: pd.Series, image_dirs: List[Path]) -> Optional[Path]:
+        for image_dir in image_dirs:
+            if 'filename' in row and pd.notna(row['filename']):
+                p = image_dir / row['filename']
                 if p.exists():
                     return p
+                p = Path(str(row['filename']))
+                if p.exists():
+                    return p
+
+            if 'image_id' in row and pd.notna(row['image_id']):
+                for ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                    p = image_dir / f"{row['image_id']}{ext}"
+                    if p.exists():
+                        return p
 
         return None
 
