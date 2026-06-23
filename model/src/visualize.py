@@ -782,7 +782,7 @@ def plot_calibration_curve(
     save_path: Optional[Path] = None,
     show: bool = False,
 ) -> Path:
-    _ensure_dir(save_path or FIGS_DIR / 'fig14_calibration_curve.png')
+    _ensure_dir(save_path or FIGS_DIR / 'fig13_calibration_curve.png')
 
     from sklearn.calibration import calibration_curve
 
@@ -808,7 +808,7 @@ def plot_calibration_curve(
 
     plt.tight_layout()
 
-    save_path = save_path or FIGS_DIR / 'fig14_calibration_curve.png'
+    save_path = save_path or FIGS_DIR / 'fig13_calibration_curve.png'
     fig.savefig(save_path)
     if show: plt.show()
     plt.close(fig)
