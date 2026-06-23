@@ -264,49 +264,58 @@ def plot_sample_predictions(
     model: torch.nn.Module,
     loader: DataLoader,
     device: torch.device,
-    num_samples: int = 16,
+    num_correct: int = 8,
+    num_errors: int = 8,
     save_path: Optional[Path] = None,
     show: bool = False,
 ) -> Path:
     _ensure_dir(save_path or FIGS_DIR / 'fig6_sample_predictions.png')
 
     model.eval()
-    images, labels = next(iter(loader))
-    num_samples = min(num_samples, images.size(0))
-    images, labels = images[:num_samples].to(device), labels[:num_samples].to(device)
-
-    logits = model(images)
-    probs = F.softmax(logits, dim=-1)
-    preds = logits.argmax(dim=-1)
-
-    images_cpu = images.cpu()
     mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
 
+    correct_samples = []
+    error_samples = []
+
+    for images, labels in loader:
+        images, labels = images.to(device), labels.to(device)
+        logits = model(images)
+        probs = F.softmax(logits, dim=-1)
+        preds = logits.argmax(dim=-1)
+        for i in range(images.size(0)):
+            img_cpu = images[i].cpu()
+            item = (img_cpu, labels[i].item(), preds[i].item(), probs[i].max().item())
+            if preds[i].item() == labels[i].item() and len(correct_samples) < num_correct:
+                correct_samples.append(item)
+            elif preds[i].item() != labels[i].item() and len(error_samples) < num_errors:
+                error_samples.append(item)
+        if len(correct_samples) >= num_correct and len(error_samples) >= num_errors:
+            break
+
+    total = num_correct + num_errors
     cols = 4
-    rows = math.ceil(num_samples / cols)
+    rows = math.ceil(total / cols)
     fig, axes = plt.subplots(rows, cols, figsize=(3 * cols, 3 * rows))
 
-    for i in range(num_samples):
+    all_samples = correct_samples + error_samples
+    for i, (img, true_label, pred_label, conf) in enumerate(all_samples):
         ax = axes.flat[i]
-        img = images_cpu[i] * std + mean
-        img = torch.clamp(img, 0, 1).permute(1, 2, 0).numpy()
-        ax.imshow(img)
-
-        true_label = 'Real' if labels[i].item() == 0 else 'AI'
-        pred_label = 'Real' if preds[i].item() == 0 else 'AI'
-        confidence = probs[i].max().item()
-        correct = preds[i].item() == labels[i].item()
-
+        img_np = torch.clamp(img * std + mean, 0, 1).permute(1, 2, 0).numpy()
+        ax.imshow(img_np)
+        true_str = 'Real' if true_label == 0 else 'AI'
+        pred_str = 'Real' if pred_label == 0 else 'AI'
+        correct = true_label == pred_label
         color = '#228B22' if correct else '#DC143C'
-        ax.set_title(f'True: {true_label}\nPred: {pred_label} ({confidence:.0%})',
-                     color=color, fontsize=8)
+        tag = 'Correct' if correct else 'Misclassified'
+        ax.set_title(f'{tag}\nTrue: {true_str} | Pred: {pred_str} ({conf:.0%})',
+                     color=color, fontsize=7)
         ax.axis('off')
 
-    for i in range(num_samples, rows * cols):
+    for i in range(total, rows * cols):
         axes.flat[i].axis('off')
 
-    fig.suptitle('Sample Predictions — Green = Correct, Red = Incorrect',
+    fig.suptitle('Sample Predictions — Correct (Top) vs Misclassified (Bottom)',
                  fontsize=12, y=1.02)
     plt.tight_layout()
 
@@ -537,6 +546,7 @@ def plot_tsne_embeddings(
     model: torch.nn.Module,
     loader: DataLoader,
     device: torch.device,
+    num_samples: int = 500,
     save_path: Optional[Path] = None,
     show: bool = False,
 ) -> Path:
@@ -546,6 +556,8 @@ def plot_tsne_embeddings(
 
     model.eval()
     all_feats, all_labels = [], []
+    low_w, mid_w, high_w = [], [], []
+    count = 0
     for images, labels in loader:
         images = images.to(device)
         bands = model.decomposer(images)
@@ -562,27 +574,63 @@ def plot_tsne_embeddings(
         all_feats.append(combined.cpu())
         all_labels.append(labels)
 
+        weights = F.softmax(freq_mags, dim=1)
+        low_w.append(weights[:, 0].cpu())
+        mid_w.append(weights[:, 1].cpu())
+        high_w.append(weights[:, 2].cpu())
+
+        count += images.size(0)
+        if count >= num_samples:
+            break
+
     feats = torch.cat(all_feats).numpy()
     labels = torch.cat(all_labels).numpy()
 
     tsne = TSNE(n_components=2, perplexity=30, random_state=42)
     embeds = tsne.fit_transform(feats)
 
-    fig, ax = plt.subplots(figsize=(6.5, 5.5))
+    low_data = torch.cat(low_w).numpy()
+    mid_data = torch.cat(mid_w).numpy()
+    high_data = torch.cat(high_w).numpy()
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+
+    ax = axes[0]
     colors = [IEEE_COLORS[2], IEEE_COLORS[1]]
     markers = ['o', 's']
     for cls in [0, 1]:
         mask = labels == cls
         ax.scatter(embeds[mask, 0], embeds[mask, 1], c=colors[cls],
                    marker=markers[cls], label=['Real', 'AI-Generated'][cls],
-                   alpha=0.6, s=15, edgecolors='w', linewidth=0.3)
+                   alpha=0.6, s=12, edgecolors='w', linewidth=0.3)
     ax.set_xlabel('t-SNE Dimension 1')
     ax.set_ylabel('t-SNE Dimension 2')
-    ax.set_title('t-SNE Visualization of Feature Embeddings')
+    ax.set_title('Feature Embeddings (t-SNE)')
     ax.legend(markerscale=2)
     ax.grid(True, alpha=0.2)
 
+    ax = axes[1]
+    band_names = ['Low', 'Mid', 'High']
+    band_data = [low_data, mid_data, high_data]
+    band_colors = [IEEE_COLORS[0], IEEE_COLORS[2], IEEE_COLORS[1]]
+    x_pos = np.arange(3)
+    width = 0.35
+    for cls_idx, (cls_name, hatch) in enumerate([('Real', ''), ('AI', '//')]):
+        means = [np.mean(data[labels == cls_idx]) for data in band_data]
+        errs = [np.std(data[labels == cls_idx]) for data in band_data]
+        offset = (cls_idx - 0.5) * width
+        ax.bar(x_pos + offset, means, width, yerr=errs, label=cls_name,
+               color=band_colors, alpha=0.7, hatch=hatch, edgecolor='gray', capsize=3)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(band_names)
+    ax.set_ylabel('Mean Attention Weight')
+    ax.set_title('Frequency Band Attention by Image Type')
+    ax.legend()
+    ax.grid(True, axis='y', alpha=0.2)
+
+    fig.suptitle('Feature Space & Frequency Attention Analysis', fontsize=13, y=1.02)
     plt.tight_layout()
+
     save_path = save_path or FIGS_DIR / 'fig11_tsne_embeddings.png'
     fig.savefig(save_path)
     if show: plt.show()
@@ -910,7 +958,7 @@ def generate_all_figures(
 
     # ── New Technical Figures (Q1 publication) ──
 
-    print('Generating Figure 11: t-SNE Feature Embeddings...')
+    print('Generating Figure 11: t-SNE + Band Attention...')
     if model is not None and val_loader is not None and device is not None:
         paths['fig11'] = plot_tsne_embeddings(model, val_loader, device, show=show)
     else:
@@ -922,23 +970,11 @@ def generate_all_figures(
     else:
         print('  Skipped: loader/device not provided')
 
-    print('Generating Figure 13: Error Analysis...')
-    if model is not None and val_loader is not None and device is not None:
-        paths['fig13'] = plot_error_analysis(model, val_loader, device, show=show)
-    else:
-        print('  Skipped: model/loader/device not provided')
-
-    print('Generating Figure 14: Confidence Calibration...')
+    print('Generating Figure 13: Confidence Calibration...')
     if y_true is not None and y_score is not None:
-        paths['fig14'] = plot_calibration_curve(y_true, y_score, show=show)
+        paths['fig13'] = plot_calibration_curve(y_true, y_score, show=show)
     else:
         print('  Skipped: no y_true/y_score provided')
-
-    print('Generating Figure 15: Band Attention Importance...')
-    if model is not None and val_loader is not None and device is not None:
-        paths['fig15'] = plot_band_importance(model, val_loader, device, show=show)
-    else:
-        print('  Skipped: model/loader/device not provided')
 
     print(f'\nAll figures saved to {FIGS_DIR}/')
     return paths
