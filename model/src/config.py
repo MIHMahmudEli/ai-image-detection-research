@@ -8,7 +8,7 @@ class TrainingConfig:
     model_variant: str = "base"
     image_size: int = 384
     batch_size: int = 32
-    epochs: int = 30
+    epochs: int = 50
     lr: float = 3e-4
     weight_decay: float = 0.05
     warmup_steps: int = 500
