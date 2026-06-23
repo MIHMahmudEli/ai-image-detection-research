@@ -527,6 +527,308 @@ def plot_architecture_diagram(
     return save_path
 
 
+# ──────────────────────────────────────────────
+# New Technical Figures (Q1 publication)
+# ──────────────────────────────────────────────
+
+
+@torch.no_grad()
+def plot_tsne_embeddings(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    save_path: Optional[Path] = None,
+    show: bool = False,
+) -> Path:
+    _ensure_dir(save_path or FIGS_DIR / 'fig11_tsne_embeddings.png')
+
+    from sklearn.manifold import TSNE
+
+    model.eval()
+    all_feats, all_labels = [], []
+    for images, labels in loader:
+        images = images.to(device)
+        bands = model.decomposer(images)
+        features = []
+        for band, extractor in zip(bands, model.extractors):
+            feat = extractor(band)
+            features.append(feat)
+        feat_stack = torch.stack(features, dim=1)
+        fused = model.fusion(feat_stack)
+        freq_mags = torch.stack([torch.abs(b).mean(dim=(1, 2, 3)) for b in bands], dim=1)
+        freq_w = F.softmax(freq_mags, dim=1).unsqueeze(-1)
+        weighted = fused * freq_w
+        combined = weighted.reshape(images.size(0), -1)
+        all_feats.append(combined.cpu())
+        all_labels.append(labels)
+
+    feats = torch.cat(all_feats).numpy()
+    labels = torch.cat(all_labels).numpy()
+
+    tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+    embeds = tsne.fit_transform(feats)
+
+    fig, ax = plt.subplots(figsize=(6.5, 5.5))
+    colors = [IEEE_COLORS[2], IEEE_COLORS[1]]
+    markers = ['o', 's']
+    for cls in [0, 1]:
+        mask = labels == cls
+        ax.scatter(embeds[mask, 0], embeds[mask, 1], c=colors[cls],
+                   marker=markers[cls], label=['Real', 'AI-Generated'][cls],
+                   alpha=0.6, s=15, edgecolors='w', linewidth=0.3)
+    ax.set_xlabel('t-SNE Dimension 1')
+    ax.set_ylabel('t-SNE Dimension 2')
+    ax.set_title('t-SNE Visualization of Feature Embeddings')
+    ax.legend(markerscale=2)
+    ax.grid(True, alpha=0.2)
+
+    plt.tight_layout()
+    save_path = save_path or FIGS_DIR / 'fig11_tsne_embeddings.png'
+    fig.savefig(save_path)
+    if show: plt.show()
+    plt.close(fig)
+    print(f'Saved: {save_path}')
+    return save_path
+
+
+def plot_frequency_response(
+    loader: DataLoader,
+    device: torch.device,
+    num_samples: int = 200,
+    save_path: Optional[Path] = None,
+    show: bool = False,
+) -> Path:
+    _ensure_dir(save_path or FIGS_DIR / 'fig12_frequency_response.png')
+
+    real_spectra, ai_spectra = [], []
+    count = 0
+    for images, labels in loader:
+        images = images.to(device)
+        gray = images.mean(dim=1, keepdim=True)
+        fft = torch.fft.fft2(gray)
+        fft_shift = torch.fft.fftshift(fft)
+        mag = torch.abs(fft_shift).squeeze()
+        for i in range(images.size(0)):
+            if labels[i].item() == 0 and len(real_spectra) < num_samples // 2:
+                real_spectra.append(mag[i].cpu().numpy())
+            elif labels[i].item() == 1 and len(ai_spectra) < num_samples // 2:
+                ai_spectra.append(mag[i].cpu().numpy())
+        count += images.size(0)
+        if len(real_spectra) >= num_samples // 2 and len(ai_spectra) >= num_samples // 2:
+            break
+
+    real_mean = np.mean(real_spectra, axis=0)
+    ai_mean = np.mean(ai_spectra, axis=0)
+
+    H, W = real_mean.shape
+    cy, cx = H // 2, W // 2
+    radii = np.arange(0, min(cy, cx))
+    real_radial = np.array([np.mean(real_mean[cy - r:cy + r + 1, cx - r:cx + r + 1]) for r in radii])
+    ai_radial = np.array([np.mean(ai_mean[cy - r:cy + r + 1, cx - r:cx + r + 1]) for r in radii])
+
+    diff = real_radial - ai_radial
+    freq_norm = radii / radii.max()
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
+
+    ax = axes[0]
+    ax.plot(freq_norm, real_radial, color=IEEE_COLORS[2], linewidth=1.5, label='Real')
+    ax.plot(freq_norm, ai_radial, color=IEEE_COLORS[1], linewidth=1.5, label='AI-Generated')
+    ax.axvspan(0, 0.15, alpha=0.1, color=IEEE_COLORS[0], label='Low')
+    ax.axvspan(0.15, 0.45, alpha=0.1, color=IEEE_COLORS[2], label='Mid')
+    ax.axvspan(0.45, 1.0, alpha=0.1, color=IEEE_COLORS[1], label='High')
+    ax.set_xlabel('Normalized Frequency')
+    ax.set_ylabel('Average Magnitude')
+    ax.set_title('Radial Frequency Spectrum')
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.2)
+
+    ax = axes[1]
+    ax.plot(freq_norm, diff, color='#333333', linewidth=1.5)
+    ax.axhline(0, color='gray', linestyle='--', linewidth=0.5)
+    ax.axvspan(0, 0.15, alpha=0.1, color=IEEE_COLORS[0])
+    ax.axvspan(0.15, 0.45, alpha=0.1, color=IEEE_COLORS[2])
+    ax.axvspan(0.45, 1.0, alpha=0.1, color=IEEE_COLORS[1])
+    ax.set_xlabel('Normalized Frequency')
+    ax.set_ylabel('Magnitude Difference (Real − AI)')
+    ax.set_title('Frequency Fingerprint')
+    ax.grid(True, alpha=0.2)
+
+    ax = axes[2]
+    vmax = max(np.abs(diff).max(), 1e-8)
+    im = ax.imshow(real_mean - ai_mean, cmap='RdBu_r', vmin=-vmax, vmax=vmax)
+    ax.set_title('2D Spectral Difference\n(Real − AI)')
+    ax.axis('off')
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    fig.suptitle('Frequency-Domain Analysis of Real vs AI-Generated Images', fontsize=13, y=1.02)
+    plt.tight_layout()
+
+    save_path = save_path or FIGS_DIR / 'fig12_frequency_response.png'
+    fig.savefig(save_path)
+    if show: plt.show()
+    plt.close(fig)
+    print(f'Saved: {save_path}')
+    return save_path
+
+
+def plot_error_analysis(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    num_examples: int = 8,
+    save_path: Optional[Path] = None,
+    show: bool = False,
+) -> Path:
+    _ensure_dir(save_path or FIGS_DIR / 'fig13_error_analysis.png')
+
+    model.eval()
+    misclassified = []
+    correct_confidences = []
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            logits = model(images)
+            probs = F.softmax(logits, dim=-1)
+            preds = logits.argmax(dim=-1)
+            for i in range(images.size(0)):
+                conf = probs[i].max().item()
+                if preds[i].item() != labels[i].item():
+                    if len(misclassified) < num_examples:
+                        misclassified.append((images[i].cpu(), labels[i].item(), preds[i].item(), conf))
+                else:
+                    correct_confidences.append(conf)
+
+    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+
+    fig, axes = plt.subplots(2, num_examples // 2, figsize=(3 * num_examples // 2, 6))
+    axes = axes.flatten()
+    for i, (img, true_label, pred_label, conf) in enumerate(misclassified):
+        img_np = torch.clamp(img * std + mean, 0, 1).permute(1, 2, 0).numpy()
+        axes[i].imshow(img_np)
+        true_str = 'Real' if true_label == 0 else 'AI'
+        pred_str = 'Real' if pred_label == 0 else 'AI'
+        axes[i].set_title(f'True: {true_str}\nPred: {pred_str} ({conf:.0%})', color='#DC143C', fontsize=8)
+        axes[i].axis('off')
+
+    for i in range(len(misclassified), len(axes)):
+        axes[i].axis('off')
+
+    fig.suptitle('Error Analysis — Misclassified Examples (False Positives / False Negatives)',
+                 fontsize=12, y=1.02)
+    plt.tight_layout()
+
+    save_path = save_path or FIGS_DIR / 'fig13_error_analysis.png'
+    fig.savefig(save_path)
+    if show: plt.show()
+    plt.close(fig)
+    print(f'Saved: {save_path}')
+    return save_path
+
+
+def plot_calibration_curve(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    n_bins: int = 10,
+    save_path: Optional[Path] = None,
+    show: bool = False,
+) -> Path:
+    _ensure_dir(save_path or FIGS_DIR / 'fig14_calibration_curve.png')
+
+    from sklearn.calibration import calibration_curve
+
+    prob_true, prob_pred = calibration_curve(y_true, y_score, n_bins=n_bins, strategy='uniform')
+
+    fig, ax = plt.subplots(figsize=(5.5, 5))
+    ax.plot(prob_pred, prob_true, 'o-', color=IEEE_COLORS[0], linewidth=2, markersize=6,
+            label='MFFT')
+    ax.plot([0, 1], [0, 1], 'k--', linewidth=1, alpha=0.5, label='Perfect Calibration')
+    ax.fill_between(prob_pred, prob_true, prob_pred, alpha=0.15, color=IEEE_COLORS[0])
+
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_xlabel('Mean Predicted Probability')
+    ax.set_ylabel('Fraction of Positives')
+    ax.set_title('Confidence Calibration Curve')
+    ax.legend(loc='lower right')
+    ax.grid(True, alpha=0.3)
+
+    ece = np.mean(np.abs(prob_true - prob_pred))
+    ax.text(0.95, 0.05, f'ECE = {ece:.3f}', ha='right', va='bottom',
+            fontsize=10, bbox=dict(boxstyle='round,pad=0.3', facecolor='wheat', alpha=0.5))
+
+    plt.tight_layout()
+
+    save_path = save_path or FIGS_DIR / 'fig14_calibration_curve.png'
+    fig.savefig(save_path)
+    if show: plt.show()
+    plt.close(fig)
+    print(f'Saved: {save_path}')
+    return save_path
+
+
+@torch.no_grad()
+def plot_band_importance(
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    num_samples: int = 500,
+    save_path: Optional[Path] = None,
+    show: bool = False,
+) -> Path:
+    _ensure_dir(save_path or FIGS_DIR / 'fig15_band_importance.png')
+
+    model.eval()
+    low_weights, mid_weights, high_weights = [], [], []
+    all_labels = []
+    count = 0
+    for images, labels in loader:
+        images = images.to(device)
+        bands = model.decomposer(images)
+        freq_mags = torch.stack([torch.abs(b).mean(dim=(1, 2, 3)) for b in bands], dim=1)
+        weights = F.softmax(freq_mags, dim=1)
+        low_weights.append(weights[:, 0].cpu())
+        mid_weights.append(weights[:, 1].cpu())
+        high_weights.append(weights[:, 2].cpu())
+        all_labels.append(labels)
+        count += images.size(0)
+        if count >= num_samples:
+            break
+
+    low_w = torch.cat(low_weights).numpy()
+    mid_w = torch.cat(mid_weights).numpy()
+    high_w = torch.cat(high_weights).numpy()
+    labels = torch.cat(all_labels).numpy()
+
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+
+    band_names = ['Low Frequency', 'Mid Frequency', 'High Frequency']
+    band_data = [low_w, mid_w, high_w]
+    band_colors = [IEEE_COLORS[0], IEEE_COLORS[2], IEEE_COLORS[1]]
+
+    for ax, name, data, color in zip(axes, band_names, band_data, band_colors):
+        real_mask = labels == 0
+        ai_mask = labels == 1
+        ax.boxplot([data[real_mask], data[ai_mask]], tick_labels=['Real', 'AI'],
+                   patch_artist=True,
+                   boxprops=dict(facecolor=color, alpha=0.5),
+                   medianprops=dict(color='black', linewidth=1.5))
+        ax.set_ylabel('Attention Weight')
+        ax.set_title(name)
+        ax.grid(True, axis='y', alpha=0.2)
+
+    fig.suptitle('Frequency Band Attention Weights by Image Type', fontsize=13, y=1.02)
+    plt.tight_layout()
+
+    save_path = save_path or FIGS_DIR / 'fig15_band_importance.png'
+    fig.savefig(save_path)
+    if show: plt.show()
+    plt.close(fig)
+    print(f'Saved: {save_path}')
+    return save_path
+
+
 def generate_all_figures(
     model: Optional[torch.nn.Module] = None,
     train_loader: Optional[DataLoader] = None,
@@ -605,6 +907,38 @@ def generate_all_figures(
 
     print('Generating Figure 10: Architecture Diagram...')
     paths['fig10'] = plot_architecture_diagram(show=show)
+
+    # ── New Technical Figures (Q1 publication) ──
+
+    print('Generating Figure 11: t-SNE Feature Embeddings...')
+    if model is not None and val_loader is not None and device is not None:
+        paths['fig11'] = plot_tsne_embeddings(model, val_loader, device, show=show)
+    else:
+        print('  Skipped: model/loader/device not provided')
+
+    print('Generating Figure 12: Frequency Response Analysis...')
+    if val_loader is not None and device is not None:
+        paths['fig12'] = plot_frequency_response(val_loader, device, show=show)
+    else:
+        print('  Skipped: loader/device not provided')
+
+    print('Generating Figure 13: Error Analysis...')
+    if model is not None and val_loader is not None and device is not None:
+        paths['fig13'] = plot_error_analysis(model, val_loader, device, show=show)
+    else:
+        print('  Skipped: model/loader/device not provided')
+
+    print('Generating Figure 14: Confidence Calibration...')
+    if y_true is not None and y_score is not None:
+        paths['fig14'] = plot_calibration_curve(y_true, y_score, show=show)
+    else:
+        print('  Skipped: no y_true/y_score provided')
+
+    print('Generating Figure 15: Band Attention Importance...')
+    if model is not None and val_loader is not None and device is not None:
+        paths['fig15'] = plot_band_importance(model, val_loader, device, show=show)
+    else:
+        print('  Skipped: model/loader/device not provided')
 
     print(f'\nAll figures saved to {FIGS_DIR}/')
     return paths
