@@ -1,0 +1,11 @@
+{
+  "total": 50000,
+  "real": 25000,
+  "ai_generated": 25000,
+  "train": 40000,
+  "val": 5000,
+  "test": 5000,
+  "train_pct": 80.0,
+  "val_pct": 10.0,
+  "test_pct": 10.0
+}

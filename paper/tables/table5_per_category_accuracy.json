@@ -1,0 +1,17 @@
+{
+  "Real": {
+    "count": 2500,
+    "accuracy_pct": 91.8,
+    "avg_confidence_pct": 38.630001068115234
+  },
+  "AI Generated": {
+    "count": 274,
+    "accuracy_pct": 55.84,
+    "avg_confidence_pct": 58.47999954223633
+  },
+  "AI Altered": {
+    "count": 2226,
+    "accuracy_pct": 42.5,
+    "avg_confidence_pct": 58.06999969482422
+  }
+}

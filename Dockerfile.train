@@ -1,0 +1,10 @@
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+
+WORKDIR /workspace
+
+RUN pip install torchvision>=0.16.0 numpy>=1.24.0 pandas>=2.0.0 Pillow>=10.0.0 scikit-learn>=1.3.0 tqdm>=4.66.0
+
+COPY model/src/ ./model/src/
+COPY dataset/metadata/ ./dataset/metadata/
+
+ENTRYPOINT ["python", "-m", "src.train"]
