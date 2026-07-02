@@ -89,7 +89,7 @@ model.eval()
 print(f'Loaded checkpoint: {ckpt.name}')
 print(f'Parameters: {count_parameters(model):,}')
 
-# ═══════════ Cell 10 logic: Evaluate + generate figures ═══════════
+# =========== Cell 10 logic: Evaluate + generate figures ===========
 print('\n' + '='*60)
 print('TESTING: Cell 10 — Evaluate + Generate Figures')
 print('='*60)
@@ -155,7 +155,7 @@ print(f'\nFigures generated: {len(paths)}/13')
 for name, p in paths.items():
     print(f'  {name}: {p.name}')
 
-# ═══════════ Cell 11 logic: Per-category accuracy ═══════════
+# =========== Cell 11 logic: Per-category accuracy ===========
 print('\n' + '='*60)
 print('TESTING: Cell 11 — Per-Category Accuracy')
 print('='*60)
@@ -188,12 +188,12 @@ for cat in ["Real", "AI Generated", "AI Altered", "Unknown"]:
     items = category_map[cat]
     correct_list = [c for c, _, _, _ in items]
     scores = [s for _, s, _, _ in items]
-    true_vs_pred = [(t, p) for _, _, t, p in items]
+    true_labels = [t for _, _, t, _ in items]
     n = len(correct_list)
     acc = sum(correct_list) / n * 100
     avg_conf = sum(scores) / n * 100
     try:
-        auc = roc_auc_score([t for t, _ in true_vs_pred], [p for _, p in true_vs_pred])
+        auc = roc_auc_score(true_labels, scores)
     except Exception:
         auc = 0.0
     rows.append((cat, n, acc, avg_conf, auc))
@@ -214,7 +214,7 @@ json.dump({
 }, open(tables_dir / "per_category_accuracy.json", "w"), indent=2)
 print("Saved: paper/tables/per_category_accuracy.json")
 
-# ═══════════ Cell 12 logic: Save all tables ═══════════
+# =========== Cell 12 logic: Save all tables ===========
 print('\n' + '='*60)
 print('TESTING: Cell 12 — Save All Tables')
 print('='*60)

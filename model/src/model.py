@@ -121,8 +121,6 @@ class FrequencyGuidedAttention(nn.Module):
     def __init__(self, dim: int = 256):
         super().__init__()
         self.freq_gate = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
             nn.Linear(dim, dim // 4),
             nn.ReLU(),
             nn.Linear(dim // 4, dim),
@@ -131,7 +129,7 @@ class FrequencyGuidedAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, freq_weights: torch.Tensor) -> torch.Tensor:
         gate = self.freq_gate(x)
-        return x * gate.unsqueeze(-1).unsqueeze(-1) * freq_weights
+        return x * gate * freq_weights
 
 
 class MFFT(nn.Module):
@@ -211,9 +209,9 @@ class MFFT(nn.Module):
         ], dim=1)
 
         freq_weights = F.softmax(freq_magnitudes, dim=1).unsqueeze(-1)
-        weighted = fused * freq_weights
+        guided = self.freq_guided_attn(fused, freq_weights)
 
-        combined = weighted.reshape(B, N * D)
+        combined = guided.reshape(B, N * D)
 
         logits = self.classifier(combined)
 

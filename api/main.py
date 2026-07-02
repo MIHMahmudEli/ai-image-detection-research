@@ -39,8 +39,14 @@ model_server: Optional[ModelServer] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model_server
-    model_path = Path(__file__).parent.parent / "model" / "checkpoints" / "best.pt"
-    model_server = ModelServer(str(model_path) if model_path.exists() else None)
+    checkpoint_dir = Path(__file__).parent.parent / "model" / "checkpoints"
+    model_path = None
+    for candidate in ["best_mfft_base.pt", "mfft_base_final.pt", "best.pt"]:
+        p = checkpoint_dir / candidate
+        if p.exists():
+            model_path = str(p)
+            break
+    model_server = ModelServer(model_path)
     yield
     model_server = None
 
@@ -160,7 +166,7 @@ async def predict(
     if tier_limits["report"]:
         heatmap_b64 = _heatmap_to_base64(result["heatmaps"])
         response.anomaly_heatmap = heatmap_b64
-        response.frequency_band_contributions = _get_freq_contributions(result)
+        response.frequency_band_contributions = result.get("frequency_band_contributions", {})
 
     return response
 
@@ -242,13 +248,6 @@ def _heatmap_to_base64(heatmaps: torch.Tensor) -> str:
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
-
-def _get_freq_contributions(result: dict) -> dict:
-    return {
-        "low_frequency": 0.33,
-        "mid_frequency": 0.35,
-        "high_frequency": 0.32,
-    }
 
 
 if __name__ == "__main__":

@@ -61,6 +61,9 @@ class ModelServer:
         probs = F.softmax(logits, dim=-1)
         pred = torch.argmax(probs, dim=-1).item()
 
+        bands = self.model.decomposer(input_tensor)
+        freq_magnitudes = [band.abs().mean().item() for band in bands]
+
         elapsed = (time.time() - start) * 1000
 
         result = {
@@ -69,6 +72,11 @@ class ModelServer:
             "ai_prob": probs[0, 1].item(),
             "confidence": probs.max(dim=-1).values.item(),
             "heatmaps": heatmaps,
+            "frequency_band_contributions": {
+                "low_frequency": freq_magnitudes[0],
+                "mid_frequency": freq_magnitudes[1],
+                "high_frequency": freq_magnitudes[2],
+            },
             "processing_time_ms": elapsed,
         }
         return result

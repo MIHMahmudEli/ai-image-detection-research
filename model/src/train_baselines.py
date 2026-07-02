@@ -1,39 +1,95 @@
 """
 Train baseline models (SimpleCNN, LightViT) for ablation comparison.
-Run overnight: python -m src.train_baselines
+Run: python -m src.train_baselines
 """
 import os, sys, json, time
 from pathlib import Path
 import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader
+from sklearn.model_selection import train_test_split
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / 'model'))
 os.chdir(PROJECT_ROOT)
 
-from src.dataset import create_dataloaders
+from src.dataset import AIDetectionDataset, ImageTransform
 from src.config import Config
-from src.baselines import SimpleCNN, LightViT, count_parameters
+from src.baselines import (
+    SimpleCNN, LightViT, count_parameters,
+    resnet18, resnet50, efficientnet_b0, vit_b_16, swin_t,
+    CLIPBaseline,
+)
 
 cfg = Config()
 cfg.dataset.undersample = True
-cfg.dataset.test_split = 0.1
+cfg.dataset.val_split = 0.15
+cfg.dataset.test_split = 0.10
 
-train_loader, val_loader, test_loader, _, _, _ = create_dataloaders(cfg)
-device = torch.device('cpu')
+full_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir,
+    metadata_paths=cfg.dataset.metadata_paths,
+    transform=None,
+    is_train=True,
+    size=cfg.training.image_size,
+    undersample=False,
+)
+labels = [s[1] for s in full_dataset.samples]
+indices = list(range(len(full_dataset)))
+
+train_idx, temp_idx = train_test_split(
+    indices, test_size=cfg.dataset.val_split + cfg.dataset.test_split,
+    stratify=labels, random_state=42)
+temp_labels = [labels[i] for i in temp_idx]
+val_idx, test_idx = train_test_split(
+    temp_idx, test_size=cfg.dataset.test_split / (cfg.dataset.val_split + cfg.dataset.test_split),
+    stratify=temp_labels, random_state=42)
+
+train_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir, metadata_paths=[],
+    transform=ImageTransform(size=cfg.training.image_size, augment=True),
+    is_train=True, size=cfg.training.image_size, undersample=False)
+train_dataset.samples = [full_dataset.samples[i] for i in train_idx]
+if cfg.dataset.undersample:
+    train_dataset._undersample()
+
+val_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir, metadata_paths=[],
+    transform=ImageTransform(size=cfg.training.image_size, augment=False),
+    is_train=False, size=cfg.training.image_size, undersample=False)
+val_dataset.samples = [full_dataset.samples[i] for i in val_idx]
+
+test_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir, metadata_paths=[],
+    transform=ImageTransform(size=cfg.training.image_size, augment=False),
+    is_train=False, size=cfg.training.image_size, undersample=False)
+test_dataset.samples = [full_dataset.samples[i] for i in test_idx]
+
+train_loader = DataLoader(train_dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=0, pin_memory=False)
+val_loader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=0, pin_memory=False)
+test_loader = DataLoader(test_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=0, pin_memory=False)
+
+print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Device: {device}")
 NUM_EPOCHS = 10
 
 baselines = {
-    'SimpleCNN': SimpleCNN,
+    'SimpleCNN': lambda: SimpleCNN(),
     'LightViT': lambda: LightViT(depth=4, num_heads=4, embed_dim=192),
+    'ResNet-18': lambda: resnet18(),
+    'ResNet-50': lambda: resnet50(),
+    'EfficientNet-B0': lambda: efficientnet_b0(),
+    'ViT-B/16': lambda: vit_b_16(img_size=cfg.training.image_size),
+    'Swin-T': lambda: swin_t(),
+    'CLIP': lambda: CLIPBaseline(),
 }
 results = {}
 
 for name, model_cls in baselines.items():
-    print(f'\n{"="*60}')
-    print(f'Training {name}...')
-    print(f'{"="*60}')
+    print(f'\n{"="*60}\nTraining {name}...\n{"="*60}')
 
     model = model_cls().to(device)
     n_params = count_parameters(model)

@@ -1,37 +1,82 @@
 """
 Train all MFFT variants (tiny, base, large) and collect comparison metrics.
-Run overnight: python -m src.train_variants
+Run: python -m src.train_variants
 """
-import os, sys, json, time, math
+import os, sys, json, time
 from pathlib import Path
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LinearLR, SequentialLR
+from torch.utils.data import DataLoader
+from sklearn.model_selection import train_test_split
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / 'model'))
 os.chdir(PROJECT_ROOT)
 
-from src.dataset import AIDetectionDataset, ImageTransform, create_dataloaders
+from src.dataset import AIDetectionDataset, ImageTransform
 from src.config import Config
 from src.model import build_mfft, count_parameters
 
 cfg = Config()
 cfg.dataset.undersample = True
-cfg.dataset.test_split = 0.1
+cfg.dataset.val_split = 0.15
+cfg.dataset.test_split = 0.10
 
-train_loader, val_loader, test_loader, train_dataset, val_dataset, test_dataset = create_dataloaders(cfg)
-device = torch.device('cpu')
-NUM_EPOCHS = 10  # fewer epochs for comparison; enough to see trends
+full_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir,
+    metadata_paths=cfg.dataset.metadata_paths,
+    transform=None,
+    is_train=True,
+    size=cfg.training.image_size,
+    undersample=False,
+)
+labels = [s[1] for s in full_dataset.samples]
+indices = list(range(len(full_dataset)))
+
+train_idx, temp_idx = train_test_split(
+    indices, test_size=cfg.dataset.val_split + cfg.dataset.test_split,
+    stratify=labels, random_state=42)
+temp_labels = [labels[i] for i in temp_idx]
+val_idx, test_idx = train_test_split(
+    temp_idx, test_size=cfg.dataset.test_split / (cfg.dataset.val_split + cfg.dataset.test_split),
+    stratify=temp_labels, random_state=42)
+
+train_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir, metadata_paths=[],
+    transform=ImageTransform(size=cfg.training.image_size, augment=True),
+    is_train=True, size=cfg.training.image_size, undersample=False)
+train_dataset.samples = [full_dataset.samples[i] for i in train_idx]
+if cfg.dataset.undersample:
+    train_dataset._undersample()
+
+val_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir, metadata_paths=[],
+    transform=ImageTransform(size=cfg.training.image_size, augment=False),
+    is_train=False, size=cfg.training.image_size, undersample=False)
+val_dataset.samples = [full_dataset.samples[i] for i in val_idx]
+
+test_dataset = AIDetectionDataset(
+    root_dir=cfg.dataset.root_dir, metadata_paths=[],
+    transform=ImageTransform(size=cfg.training.image_size, augment=False),
+    is_train=False, size=cfg.training.image_size, undersample=False)
+test_dataset.samples = [full_dataset.samples[i] for i in test_idx]
+
+train_loader = DataLoader(train_dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=0, pin_memory=False)
+val_loader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=0, pin_memory=False)
+test_loader = DataLoader(test_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=0, pin_memory=False)
+
+print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Device: {device}")
+NUM_EPOCHS = 10
 
 variants = ['tiny', 'base', 'large']
 results = {}
 
 for variant in variants:
-    print(f'\n{"="*60}')
-    print(f'Training MFFT-{variant}...')
-    print(f'{"="*60}')
+    print(f'\n{"="*60}\nTraining MFFT-{variant}...\n{"="*60}')
 
     model = build_mfft(variant).to(device)
     n_params = count_parameters(model)
@@ -81,7 +126,6 @@ for variant in variants:
     elapsed = time.time() - start_time
     print(f'  Best val: {best_acc:.2f}%, Time: {elapsed/60:.1f} min')
 
-    # Test evaluation
     test_correct = test_total = 0
     with torch.no_grad():
         for images, labels in test_loader:

@@ -42,19 +42,11 @@ class DatasetConfig:
     metadata_paths: List[str] = field(default_factory=lambda: [
         os.path.join(os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..")
-        ), "dataset", "metadata", "all.csv"),
+        ), "dataset", "metadata", "clean_metadata.csv"),
     ])
     undersample: bool = True
     val_split: float = 0.15
     test_split: float = 0.0
-
-    def __post_init__(self):
-        root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..")
-        )
-        self.metadata_paths = [
-            os.path.join(root, "dataset", "metadata", "all.csv"),
-        ]
 
 
 @dataclass

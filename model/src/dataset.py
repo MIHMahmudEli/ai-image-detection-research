@@ -21,16 +21,20 @@ class ImageTransform:
 
         if augment:
             self.transform = transforms.Compose([
-                transforms.Resize((size, size)),
+                transforms.Resize(size + 16),
+                transforms.RandomResizedCrop(size, scale=(0.85, 1.0), ratio=(0.9, 1.1)),
                 transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomRotation(degrees=5, fill=128),
-                transforms.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.05),
+                transforms.RandomRotation(degrees=10, fill=128),
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.02),
+                transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.1),
                 transforms.ToTensor(),
+                transforms.RandomErasing(p=0.1, scale=(0.02, 0.1), ratio=(0.3, 3.3)),
                 self.normalize,
             ])
         else:
             self.transform = transforms.Compose([
-                transforms.Resize((size, size)),
+                transforms.Resize(size + 16),
+                transforms.CenterCrop(size),
                 transforms.ToTensor(),
                 self.normalize,
             ])
@@ -77,7 +81,7 @@ class AIDetectionDataset(Dataset):
                 print(f"  Warning: {p} not found, skipping")
                 continue
             try:
-                df = pd.read_csv(p)
+                df = pd.read_csv(p, low_memory=False, dtype={'generator': str, 'md5': str})
             except Exception:
                 try:
                     df = pd.read_json(p)
@@ -99,6 +103,7 @@ class AIDetectionDataset(Dataset):
     def _resolve_image_dirs(self, metadata_path: Path, df: pd.DataFrame) -> List[Path]:
         base = metadata_path.parent.parent / "images"
         candidates = [
+            base,  # new layout: filenames are relative paths from images root
             base / "real",
             base / "ai_generated",
             base / "ai_altered",
@@ -117,16 +122,22 @@ class AIDetectionDataset(Dataset):
         return []
 
     def _resolve_image_path(self, row: pd.Series, image_dirs: List[Path]) -> Optional[Path]:
-        for image_dir in image_dirs:
-            if 'filename' in row and pd.notna(row['filename']):
-                p = image_dir / row['filename']
+        if 'filename' in row and pd.notna(row['filename']):
+            fn = str(row['filename'])
+            if '/' in fn or '\\' in fn:
+                p = image_dirs[0] / fn
                 if p.exists():
                     return p
-                p = Path(str(row['filename']))
+            for image_dir in image_dirs:
+                p = image_dir / fn
                 if p.exists():
                     return p
+            p = Path(fn)
+            if p.exists():
+                return p
 
-            if 'image_id' in row and pd.notna(row['image_id']):
+        if 'image_id' in row and pd.notna(row['image_id']):
+            for image_dir in image_dirs:
                 for ext in ['.jpg', '.jpeg', '.png', '.webp']:
                     p = image_dir / f"{row['image_id']}{ext}"
                     if p.exists():
@@ -148,7 +159,7 @@ class AIDetectionDataset(Dataset):
             val = str(row['label']).lower()
             if val in ('0', 'real'):
                 return 0
-            if val in ('1', 'ai', 'fake'):
+            if val in ('1', 'ai', 'fake', 'ai_generated', 'deepfake'):
                 return 1
 
         return None
@@ -225,9 +236,11 @@ def create_dataloaders(
         transform=ImageTransform(size=size, augment=True),
         is_train=True,
         size=size,
-        undersample=undersample,
+        undersample=False,
     )
     train_dataset.samples = [full_dataset.samples[i] for i in train_idx]
+    if undersample:
+        train_dataset._undersample()
 
     val_dataset = AIDetectionDataset(
         root_dir=root_dir,

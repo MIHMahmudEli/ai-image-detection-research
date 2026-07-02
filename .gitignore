@@ -41,3 +41,5 @@ dataset/.env
 
 # Logs
 *.log
+
+dataset/scripts/part-000001.zip

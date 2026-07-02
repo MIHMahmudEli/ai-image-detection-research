@@ -271,11 +271,9 @@ def main():
     os.makedirs(config.output_dir, exist_ok=True)
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    metadata_paths = [
-        os.path.join(root, "dataset", "metadata", "all.csv"),
-    ]
+    metadata_paths = cfg.dataset.metadata_paths
     existing_metadata = [p for p in metadata_paths if os.path.exists(p)]
-    print(f"Found {len(existing_metadata)} metadata files")
+    print(f"Found {len(existing_metadata)} metadata files: {existing_metadata}")
 
     train_loader, val_loader = create_dataloaders(
         root_dir=root,
