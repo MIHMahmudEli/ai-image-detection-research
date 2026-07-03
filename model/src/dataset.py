@@ -5,6 +5,7 @@ import pandas as pd
 from PIL import Image
 import random
 import numpy as np
+import warnings
 from typing import Optional, Callable, Dict, List, Tuple
 from torchvision import transforms
 
@@ -65,8 +66,19 @@ class AIDetectionDataset(Dataset):
         self.transform = transform or ImageTransform(size=size, augment=is_train)
         self.samples = []
         self.metadata_paths = metadata_paths
+        self._corrupted_files = []
+        self._skipped_zero_byte = 0
 
         self._load_all_metadata()
+
+        if self._skipped_zero_byte > 0:
+            print(f"  Warning: skipped {self._skipped_zero_byte} zero-byte/corrupted files")
+        if self._corrupted_files:
+            print(f"  Warning: {len(self._corrupted_files)} files previously flagged as corrupted")
+            for f in self._corrupted_files[:5]:
+                print(f"    - {f}")
+            if len(self._corrupted_files) > 5:
+                print(f"    ... and {len(self._corrupted_files) - 5} more")
 
         if undersample and is_train:
             self._undersample()
@@ -96,6 +108,10 @@ class AIDetectionDataset(Dataset):
             for _, row in df.iterrows():
                 img_path = self._resolve_image_path(row, image_dirs)
                 if img_path and img_path.exists():
+                    size = img_path.stat().st_size
+                    if size == 0:
+                        self._skipped_zero_byte += 1
+                        continue
                     label = self._get_label(row)
                     if label is not None:
                         self.samples.append((str(img_path), label))
@@ -192,9 +208,29 @@ class AIDetectionDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         path, label = self.samples[idx]
-        img = Image.open(path).convert("RGB")
-        tensor = self.transform(img)
-        return tensor, label
+        try:
+            img = Image.open(path).convert("RGB")
+            tensor = self.transform(img)
+            return tensor, label
+        except Exception as e:
+            rel = Path(path).relative_to(self.root_dir) if path.startswith(str(self.root_dir)) else path
+            warnings.warn(f"Corrupted image #{idx}: {rel} ({e})")
+
+            # Retry with the next valid sample
+            for offset in range(1, min(100, len(self.samples))):
+                retry_idx = (idx + offset) % len(self.samples)
+                retry_path, retry_label = self.samples[retry_idx]
+                try:
+                    img = Image.open(retry_path).convert("RGB")
+                    tensor = self.transform(img)
+                    if offset not in self._corrupted_files:
+                        self._corrupted_files.append(retry_path)
+                    return tensor, retry_label
+                except Exception:
+                    continue
+
+            blank = torch.zeros(3, self.transform.size, self.transform.size)
+            return blank, label
 
 
 def create_dataloaders(

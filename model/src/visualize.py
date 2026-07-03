@@ -49,7 +49,11 @@ def plot_frequency_decomposition(
 ) -> Path:
     _ensure_dir(save_path or FIGS_DIR / 'fig1_frequency_decomposition.png')
 
-    img = Image.open(image_path).convert('RGB')
+    try:
+        img = Image.open(image_path).convert('RGB')
+    except Exception:
+        print(f"  Warning: cannot load {image_path}, using blank")
+        img = Image.new('RGB', (384, 384), color='gray')
     img_tensor = torch.from_numpy(np.array(img)).permute(2, 0, 1).float().unsqueeze(0) / 255.0
 
     decomposer = FrequencyDecomposition()

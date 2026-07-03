@@ -87,39 +87,49 @@ class Trainer:
         total_loss = 0
         correct = 0
         total = 0
+        skipped = 0
 
         for batch_idx, (images, labels) in enumerate(train_loader):
-            images = images.to(self.device)
-            labels = labels.to(self.device)
+            try:
+                images = images.to(self.device)
+                labels = labels.to(self.device)
 
-            with autocast(enabled=self.config.training.mixed_precision and torch.cuda.is_available()):
-                logits = self.model(images)
-                loss = self.criterion(logits, labels)
+                with autocast(enabled=self.config.training.mixed_precision and torch.cuda.is_available()):
+                    logits = self.model(images)
+                    loss = self.criterion(logits, labels)
 
-            loss = loss / self.config.training.gradient_accumulation_steps
+                loss = loss / self.config.training.gradient_accumulation_steps
 
-            self.scaler.scale(loss).backward()
+                self.scaler.scale(loss).backward()
 
-            if (batch_idx + 1) % self.config.training.gradient_accumulation_steps == 0:
-                self.scaler.unscale_(self.optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.training.max_grad_norm,
-                )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-                self.scheduler.step()
+                if (batch_idx + 1) % self.config.training.gradient_accumulation_steps == 0:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.config.training.max_grad_norm,
+                    )
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    self.scheduler.step()
+                    self.optimizer.zero_grad()
+                    self.global_step += 1
+
+                total_loss += loss.item() * self.config.training.gradient_accumulation_steps
+                preds = logits.argmax(dim=-1)
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+            except Exception as e:
+                skipped += 1
                 self.optimizer.zero_grad()
-                self.global_step += 1
+                if skipped <= 3:
+                    print(f"  Warning: skipping bad batch {batch_idx}: {e}")
 
-            total_loss += loss.item() * self.config.training.gradient_accumulation_steps
-            preds = logits.argmax(dim=-1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+        if skipped > 0:
+            print(f"  Skipped {skipped} bad batches this epoch")
 
         return {
-            "loss": total_loss / len(train_loader),
-            "acc": correct / total * 100,
+            "loss": total_loss / max(len(train_loader) - skipped, 1),
+            "acc": correct / max(total, 1) * 100,
             "lr": self.scheduler.get_last_lr()[0],
         }
 
@@ -134,22 +144,26 @@ class Trainer:
         all_probs = []
 
         for images, labels in val_loader:
-            images = images.to(self.device)
-            labels = labels.to(self.device)
+            try:
+                images = images.to(self.device)
+                labels = labels.to(self.device)
 
-            logits = self.model(images)
-            loss = self.criterion(logits, labels)
+                logits = self.model(images)
+                loss = self.criterion(logits, labels)
 
-            probs = F.softmax(logits, dim=-1)
-            preds = logits.argmax(dim=-1)
+                probs = F.softmax(logits, dim=-1)
+                preds = logits.argmax(dim=-1)
 
-            total_loss += loss.item()
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+                total_loss += loss.item()
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
 
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-            all_probs.extend(probs.cpu().numpy())
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+                all_probs.extend(probs.cpu().numpy())
+            except Exception as e:
+                print(f"  Warning: skipping bad val batch: {e}")
+                continue
 
         accuracy = correct / total * 100
 

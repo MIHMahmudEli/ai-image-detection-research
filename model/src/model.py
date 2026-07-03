@@ -147,6 +147,12 @@ class MFFT(nn.Module):
 
     Input:  (B, 3, H, W)  RGB image
     Output: (B, 2)         logits [real, ai_generated]
+
+    Ablation config (dict):
+        spatial_only : bool  — skip frequency decomposition, use raw image
+        skip_bands   : list  — band names to exclude: ["low", "mid", "high"]
+        fusion_mode  : str   — "attention" | "concat" | "avg" | "max"
+        use_fga      : bool  — enable/disable FrequencyGuidedAttention
     """
     def __init__(
         self,
@@ -155,9 +161,11 @@ class MFFT(nn.Module):
         num_bands: int = 3,
         num_heads: int = 8,
         num_classes: int = 2,
+        ablation: Optional[dict] = None,
     ):
         super().__init__()
         self.num_bands = num_bands
+        self.ablation = ablation or {}
 
         self.decomposer = FrequencyDecomposition()
         self.extractors = nn.ModuleList([
@@ -165,9 +173,16 @@ class MFFT(nn.Module):
             for _ in range(num_bands)
         ])
 
-        self.fusion = CrossAttentionFusion(feat_dim, num_heads)
+        if self.ablation.get("fusion_mode", "attention") == "attention":
+            self.fusion = CrossAttentionFusion(feat_dim, num_heads)
+        else:
+            self.fusion = None
 
-        self.freq_guided_attn = FrequencyGuidedAttention(feat_dim)
+        self.use_fga = self.ablation.get("use_fga", True)
+        if self.use_fga:
+            self.freq_guided_attn = FrequencyGuidedAttention(feat_dim)
+        else:
+            self.freq_guided_attn = None
 
         self.classifier = nn.Sequential(
             nn.LayerNorm(feat_dim * num_bands),
@@ -193,25 +208,73 @@ class MFFT(nn.Module):
                 nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x: torch.Tensor, return_heatmap: bool = False):
-        bands = self.decomposer(x)
+        spatial_only = self.ablation.get("spatial_only", False)
+        skip_bands = self.ablation.get("skip_bands", [])
+        fusion_mode = self.ablation.get("fusion_mode", "attention")
+        band_names = ["low", "mid", "high"]
+
+        if spatial_only:
+            bands = [x]
+            extractors = self.extractors[:1]
+        else:
+            all_bands = self.decomposer(x)
+            keep_indices = [i for i, name in enumerate(band_names) if name not in skip_bands]
+            bands = [all_bands[i] for i in keep_indices]
+            extractors = [self.extractors[i] for i in keep_indices]
+
         features = []
-        for i, (band, extractor) in enumerate(zip(bands, self.extractors)):
+        for band, extractor in zip(bands, extractors):
             feat = extractor(band)
             features.append(feat)
 
-        feat_stack = torch.stack(features, dim=1)
-        fused = self.fusion(feat_stack)
-        B, N, D = fused.shape
+        B = x.shape[0]
+        num_active = len(features)
 
-        freq_magnitudes = torch.stack([
-            torch.abs(band).mean(dim=(1, 2, 3))
-            for band in bands
-        ], dim=1)
+        if num_active == 1 or fusion_mode == "concat":
+            fused = torch.cat(features, dim=-1)
+            N = num_active
+            D = fused.shape[-1] // N
+            fused = fused.unsqueeze(1)
+        elif fusion_mode == "avg":
+            fused = torch.stack(features, dim=0).mean(dim=0)
+            N = 1
+            D = fused.shape[-1]
+            fused = fused.unsqueeze(1)
+        elif fusion_mode == "max":
+            fused = torch.stack(features, dim=0).max(dim=0).values
+            N = 1
+            D = fused.shape[-1]
+            fused = fused.unsqueeze(1)
+        elif fusion_mode == "attention" and self.fusion is not None and num_active > 1:
+            feat_stack = torch.stack(features, dim=1)
+            fused = self.fusion(feat_stack)
+            N = fused.shape[1]
+            D = fused.shape[2]
+        else:
+            fused = torch.cat(features, dim=-1)
+            N = num_active
+            D = fused.shape[-1] // N
+            fused = fused.unsqueeze(1)
 
-        freq_weights = F.softmax(freq_magnitudes, dim=1).unsqueeze(-1)
-        guided = self.freq_guided_attn(fused, freq_weights)
+        if self.use_fga and self.freq_guided_attn is not None and not spatial_only:
+            if not spatial_only:
+                all_bands_for_fga = bands
+            else:
+                all_bands_for_fga = self.decomposer(x)
+            freq_magnitudes = torch.stack([
+                torch.abs(band).mean(dim=(1, 2, 3))
+                for band in all_bands_for_fga
+            ], dim=1)
+            freq_weights = F.softmax(freq_magnitudes, dim=1).unsqueeze(-1)
+            guided = self.freq_guided_attn(fused, freq_weights)
+        else:
+            guided = fused
 
         combined = guided.reshape(B, N * D)
+        if combined.shape[-1] != self.classifier[0].normalized_shape[0]:
+            pad = self.classifier[0].normalized_shape[0] - combined.shape[-1]
+            if pad > 0:
+                combined = F.pad(combined, (0, pad))
 
         logits = self.classifier(combined)
 
@@ -269,12 +332,12 @@ def count_parameters(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def build_mfft(variant: str = "base") -> MFFT:
+def build_mfft(variant: str = "base", ablation: Optional[dict] = None) -> MFFT:
     configs = {
         "tiny":  {"feat_dim": 128, "num_heads": 4, "num_bands": 3},
         "base":  {"feat_dim": 256, "num_heads": 8, "num_bands": 3},
         "large": {"feat_dim": 512, "num_heads": 12, "num_bands": 4},
     }
     cfg = configs.get(variant, configs["base"])
-    model = MFFT(**cfg)
+    model = MFFT(**cfg, ablation=ablation)
     return model
