@@ -1,0 +1,11 @@
+{
+  "model": "EfficientNet-B0",
+  "params": 4010110,
+  "best_val_acc": 96.4,
+  "best_epoch": 1,
+  "test_accuracy": 97.0,
+  "test_precision": 97.19,
+  "test_recall": 96.8,
+  "test_f1": 96.99,
+  "test_auc": 0.9967
+}

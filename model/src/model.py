@@ -335,8 +335,8 @@ def count_parameters(model: nn.Module) -> int:
 def build_mfft(variant: str = "base", ablation: Optional[dict] = None) -> MFFT:
     configs = {
         "tiny":  {"feat_dim": 128, "num_heads": 4, "num_bands": 3},
-        "base":  {"feat_dim": 256, "num_heads": 8, "num_bands": 3},
-        "large": {"feat_dim": 512, "num_heads": 12, "num_bands": 4},
+        "base":  {"feat_dim": 384, "num_heads": 6, "num_bands": 3},
+        "large": {"feat_dim": 768, "num_heads": 12, "num_bands": 4},
     }
     cfg = configs.get(variant, configs["base"])
     model = MFFT(**cfg, ablation=ablation)
