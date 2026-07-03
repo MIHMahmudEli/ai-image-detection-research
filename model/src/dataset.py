@@ -229,7 +229,7 @@ class AIDetectionDataset(Dataset):
                 except Exception:
                     continue
 
-            blank = torch.zeros(3, self.transform.size, self.transform.size)
+            blank = torch.zeros(3, self.size, self.size)
             return blank, label
 
 

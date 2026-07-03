@@ -5,17 +5,16 @@ import numpy as np
 from typing import List, Tuple, Optional
 
 
+BAND_CONFIGS = {
+    3: [(0.0, 0.15), (0.15, 0.45), (0.45, 1.0)],
+    4: [(0.0, 0.1), (0.1, 0.3), (0.3, 0.6), (0.6, 1.0)],
+}
+
 class FrequencyDecomposition(nn.Module):
-    """
-    Decomposes image into Low, Mid, and High frequency bands
-    using DCT (Discrete Cosine Transform) decomposition.
-    """
-    def __init__(self, bands: List[Tuple[float, float]] = None):
+    def __init__(self, num_bands: int = 3):
         super().__init__()
-        if bands is None:
-            bands = [(0.0, 0.15), (0.15, 0.45), (0.45, 1.0)]
-        self.bands = bands
-        self.num_bands = len(bands)
+        self.bands = BAND_CONFIGS.get(num_bands, BAND_CONFIGS[3])
+        self.num_bands = len(self.bands)
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         B, C, H, W = x.shape
@@ -167,7 +166,7 @@ class MFFT(nn.Module):
         self.num_bands = num_bands
         self.ablation = ablation or {}
 
-        self.decomposer = FrequencyDecomposition()
+        self.decomposer = FrequencyDecomposition(num_bands=num_bands)
         self.extractors = nn.ModuleList([
             FrequencyFeatureExtractor(in_channels, feat_dim)
             for _ in range(num_bands)
