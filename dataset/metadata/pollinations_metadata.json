@@ -1,0 +1,58 @@
+[
+  {
+    "filename": "dataset/images/ai_generated/pollinations_00002.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "cat sitting on windowsill photorealistic",
+    "md5": "6649237affb9a67382ca737184813051"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_00041.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "mountain landscape at sunset photography",
+    "md5": "06be5f2dd00afc319f584124d1de83c6"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_00293.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "snow capped mountains reflecting in lake",
+    "md5": "3c9d7fefad3bb08f2a56b68aa042ae6e"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_00598.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "fresh bakery items on counter warm light",
+    "md5": "dc9b176602b0e13b4a776dd936d3efbb"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_00912.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "baby laughing candid moment natural light",
+    "md5": "623cea7f582d07693592a77d395d1729"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_01210.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "aerial view tropical island clear water",
+    "md5": "c35ac973ffa9c36c2d7340b1cc112ec7"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_01524.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "plate of gourmet food on wooden table",
+    "md5": "6aaa5063e06e02941db2bb45098f6208"
+  },
+  {
+    "filename": "dataset/images/ai_generated/pollinations_01831.jpg",
+    "source": "pollinations",
+    "generator": "Flux",
+    "prompt": "street photography market small town",
+    "md5": "e8b86309ced2946166a1ac217113f77f"
+  }
+]

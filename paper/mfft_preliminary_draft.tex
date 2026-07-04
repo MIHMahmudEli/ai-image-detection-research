@@ -1,0 +1,842 @@
+\documentclass[journal]{IEEEtran}
+
+% ============================================================
+% MFFT — PRELIMINARY DRAFT (PILOT-STUDY RESULTS), JOURNAL LENGTH
+% ------------------------------------------------------------
+% Every number in this draft is traceable to project artifacts:
+%   paper/result/test/{tiny,base,large}_model/table/*.csv
+%   paper/result/test/ablation/ablation_summary.csv
+%   model/paper/result/test/baselines_model/baseline_summary.csv
+%   dataset/metadata/clean_metadata.csv (corpus composition)
+% Pilot protocol: 1 epoch, 5,000-image subset (4,000/500/500),
+% 224x224 input. Slots marked [FULL-SCALE: ...] are to be filled
+% after the DGX campaign (2.7M images, 20 epochs, 384x384).
+% ============================================================
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{xcolor}
+
+% Marker for numbers to be replaced after full-scale training
+\newcommand{\fullscale}[1]{\textcolor{red}{[FULL-SCALE: #1]}}
+
+\hyphenation{op-tical net-works semi-conduc-tor fre-quen-cy de-com-po-si-tion ge-ne-ra-tive ad-ver-sar-i-al}
+
+\begin{document}
+
+\title{Multi-Frequency Fusion Transformer for AI-Generated Image Detection: Architecture, Design Analysis, and Pilot-Scale Validation}
+
+\author{Mohsin~Ibna~Hossain,~MD.~Muttakin,~and~Mohammad~Mahmudul~Hasan,~\IEEEmembership{Member,~IEEE}%
+\thanks{M. I. Hossain and MD. Muttakin are with the Department of Computer Science, American International University-Bangladesh, Dhaka, Bangladesh (e-mail: 23-50194-1@student.aiub.edu; 23-50987-1@student.aiub.edu).}%
+\thanks{M. M. Hasan is with the Department of Computer Science, American International University-Bangladesh, Dhaka, Bangladesh (e-mail: m.hasan@aiub.edu).}%
+\thanks{Manuscript draft --- preliminary pilot-study results; full-scale results pending.}}
+
+\markboth{PRELIMINARY DRAFT --- NOT FOR SUBMISSION}%
+{Hossain \MakeLowercase{\textit{et al.}}: Multi-Frequency Fusion Transformer for AI-Generated Image Detection}
+
+\maketitle
+
+\begin{abstract}
+The proliferation of photorealistic generative models has created an urgent need for robust, efficient, and interpretable detectors of AI-generated imagery. Existing detectors predominantly operate in the spatial domain, yet generative pipelines leave characteristic traces in the frequency domain that are complementary to spatial cues and are rooted in the mathematics of the generation process itself. We present the Multi-Frequency Fusion Transformer (MFFT), an architecture that decomposes an input image into low, mid, and high frequency bands via differentiable Fourier-based radial filtering, extracts per-band features with dedicated lightweight CNN backbones using depthwise separable convolutions, and fuses the bands through multi-head cross-attention augmented by a Frequency-Guided Attention (FGA) gating mechanism grounded in the physical spectral energy of the input. Three variants---MFFT-Tiny (372K), MFFT-Base (1.62M), and MFFT-Large (6.30M parameters)---span an accuracy--efficiency trade-off, with checkpoints of 1.5--25~MB suitable for edge to server deployment. In this draft we report a controlled \emph{pilot study}: all models are trained for a single epoch on a balanced 5,000-image subset of our 2.7-million-image corpus and evaluated against ten baselines under an identical protocol. Trained from scratch, MFFT-Large reaches 91.4\% accuracy (0.964 AUC), outperforming every other from-scratch model by a wide margin (best competitor: SimpleCNN at 77.2\%), while remaining within 4--7 points of ImageNet-pretrained CNNs that use 2--14$\times$ more parameters. Ablations over nine configurations show that frequency decomposition is the dominant factor: the high-frequency band alone improves over a spatial-only baseline by 7.0 points, and every multi-band fusion strategy outperforms the spatial-only model by 5--9 points. In the 1-epoch regime, simple max-pooling fusion (90.6\%) currently edges out learned cross-attention fusion (90.0\%) and the full model with FGA (88.6\%), an ordering we hypothesize will reverse with full training; verifying this is the primary goal of the forthcoming full-scale study. The architecture additionally yields intrinsic per-band anomaly heatmaps and calibrated confidence estimates (ECE 0.080 for MFFT-Base) for interpretable forensic evidence. Code, data manifests, and pretrained checkpoints will be released.
+\end{abstract}
+
+\begin{IEEEkeywords}
+AI-generated image detection, image forensics, frequency analysis, cross-attention fusion, deepfake detection, vision transformer, interpretability, model calibration.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+\IEEEPARstart{M}{odern} generative models---diffusion models such as Stable Diffusion~\cite{rombach2022} and DALL-E~3~\cite{betker2023}, adversarial models in the StyleGAN family~\cite{karras2019}, and large multimodal systems---now produce images that human observers cannot reliably distinguish from photographs. This capability threatens journalism, legal evidence, biometric security, scientific integrity, and public discourse. Synthetic imagery has been documented in election disinformation, fabricated news, identity fraud, and large-scale social engineering, and the volume of AI-generated content circulating on public platforms continues to grow. Human inspection does not scale and is unreliable: studies consistently find that untrained observers perform near chance on high-quality diffusion outputs. Automated detection is therefore a foundational requirement for media authenticity infrastructure~\cite{wang2020,ojha2023,zhu2023genimage,tan2024npr}.
+
+A central and still unsolved difficulty is \emph{generalization}. Detectors trained on one family of generators degrade sharply on unseen families~\cite{ojha2023,corvi2023,yan2025sanity}: accuracy drops of 15--25 points are routinely reported when a GAN-trained detector meets diffusion outputs, and recent in-the-wild evaluations show that many published detectors approach chance performance on images collected outside their benchmark distribution~\cite{yan2025sanity}. Spatial-domain classifiers tend to latch onto generator-specific texture statistics or, worse, onto semantic shortcuts (content categories that correlate with the synthetic class in the training set); when the generator or content distribution changes, the learned shortcut disappears.
+
+Frequency-domain analysis offers a more principled signal. Upsampling operations common to CNN-based decoders imprint periodic artifacts in the high-frequency spectrum~\cite{zhang2019wifs,durall2020,frank2020}; diffusion models systematically distort mid-to-high frequency statistics relative to natural images~\cite{corvi2023,ricker2024}; and all synthetic pipelines lack the sensor-noise signature that a physical camera imprints on real photographs~\cite{cozzolino2019}. Because these traces originate in the mathematics of the generation process---transposed convolutions, decoder upsampling factors, denoising trajectories---rather than in the training data of any particular model, they are plausible candidates for architecture-agnostic detection cues. Recent frequency-aware detectors such as FreqNet~\cite{tan2024freqnet} and NPR~\cite{tan2024npr} exploit exactly this intuition and report among the strongest cross-generator results in the current literature.
+
+\subsection{Motivation: Why \emph{Multiple} Bands}
+Existing frequency-based methods typically operate on a single high-pass residual, a full-spectrum representation, or aggregate spectral statistics, discarding the multi-scale structure of the spectrum. Yet the forensic literature indicates that different generator families concentrate their artifacts in \emph{different} frequency ranges. GAN upsampling artifacts---checkerboard patterns from transposed convolutions---are predominantly high-frequency~\cite{zhang2019wifs,durall2020}. Diffusion denoising signatures span mid-to-high bands, reflecting the mismatch between the training-time noise schedule and the inference-time sampling trajectory~\cite{corvi2023}. Structural anomalies of autoregressive and patch-based generators manifest at low frequencies as global-coherence failures. A single-band detector is blind to whichever artifacts fall outside its band; an aggregate-spectrum detector dilutes localized band evidence into global statistics. A detector that \emph{adaptively weights multiple frequency bands per input} should therefore be more robust than any single-band scheme---this is the hypothesis MFFT is designed to test.
+
+A second motivation is efficiency. State-of-the-art universal detectors increasingly rely on frozen foundation-model backbones (CLIP ViT-L, DINOv2) with hundreds of millions of parameters~\cite{ojha2023}. Platform-scale screening---millions of images per day---and on-device deployment require far smaller models. If explicit frequency decomposition supplies the inductive bias that large backbones otherwise learn from data, compact frequency-native architectures may achieve competitive accuracy at a fraction of the cost.
+
+\subsection{Contributions}
+We propose the Multi-Frequency Fusion Transformer (MFFT) and make the following contributions:
+\begin{enumerate}
+    \item \textbf{Multi-band frequency decomposition:} a differentiable, non-parametric FFT-based module that splits the input into low, mid, and high radial frequency bands, each processed by a dedicated lightweight CNN with depthwise separable convolutions.
+    \item \textbf{Cross-attention band fusion (CAF):} a multi-head attention mechanism over band tokens that learns input-dependent inter-band relationships, replacing static fusion rules such as concatenation or pooling.
+    \item \textbf{Frequency-Guided Attention (FGA):} a gating mechanism that weights fused features by the physical frequency-magnitude content of the input, providing an inductive bias grounded in spectral energy rather than learned correlations alone.
+    \item \textbf{Three efficient variants:} MFFT-Tiny (372K), MFFT-Base (1.62M), and MFFT-Large (6.30M parameters) with 1.5--25~MB checkpoints, spanning edge to server deployment.
+    \item \textbf{Pilot-scale controlled evaluation:} a single-protocol comparison against ten baselines---from-scratch CNNs and ViTs, ImageNet-pretrained CNNs and transformers, CLIP linear probing, and a hand-crafted spectral method---together with a nine-configuration ablation isolating each architectural component and a band-count study.
+    \item \textbf{Intrinsic interpretability and calibration analysis:} per-band anomaly heatmaps produced directly by the decomposition, offering constitutive (input-derived) rather than purely attributional (gradient-derived) forensic evidence~\cite{selvaraju2017}, together with reliability diagrams, expected calibration error, and Brier scores for all variants.
+\end{enumerate}
+
+\subsection{Research Questions}
+The study is organized around five questions. \textbf{RQ1:} Does multi-frequency decomposition improve detection over spatial-only processing at equal capacity and compute? \textbf{RQ2:} Does learned cross-attention fusion outperform static fusion strategies (concatenation, averaging, max pooling)? \textbf{RQ3:} Which frequency bands carry the discriminative signal? \textbf{RQ4:} How does the approach generalize across generators and content categories? \textbf{RQ5:} What accuracy--efficiency trade-off does the architecture achieve relative to standard and foundation-model baselines?
+
+\subsection{Scope of This Draft}
+We deliberately separate the \emph{architecture contribution} from the \emph{scale claim}. All quantitative results in this draft come from a pilot protocol---one training epoch on a balanced 5,000-image subset (4,000 train / 500 validation / 500 test) at $224\times224$ resolution---designed to (i) verify the training and evaluation pipeline end to end, (ii) compare thirteen models under identical low-budget conditions, and (iii) test whether frequency decomposition provides measurable benefit before committing large-scale compute. A full-scale study (2.7M images, 20 epochs, $384\times384$, cross-generator hold-out, and robustness evaluation) is in progress on university DGX infrastructure; sections that depend on it are explicitly marked \fullscale{...}. We report the pilot honestly, including configurations where simpler fusion currently beats our learned fusion, because these findings define the hypotheses the full-scale study must test. RQ1, RQ3, and RQ5 receive pilot answers below; RQ2 receives a preliminary (and currently negative) answer; RQ4 is explicitly deferred.
+
+The remainder of the paper is organized as follows. Section~II reviews generative models, detection approaches, and benchmarks. Section~III details the MFFT architecture with full parameter accounting. Section~IV describes the corpus, the pilot protocol, baselines, and metrics. Section~V presents the pilot results: main comparison, per-variant analysis, ablations, qualitative analysis, and efficiency. Section~VI discusses interpretation, the fusion paradox, calibration, and interpretability. Section~VII states limitations; Section~VIII specifies the planned full-scale study; Section~IX addresses ethics; Section~X concludes.
+
+% ============================================================
+\section{Background and Related Work}
+% ============================================================
+
+\subsection{Generative Models and Their Spectral Signatures}
+Three architectural families dominate modern image synthesis, each leaving characteristic frequency traces. \textbf{GANs}~\cite{goodfellow2014} synthesize images through an adversarial game; the StyleGAN line~\cite{karras2019} achieves photorealistic faces. Their decoders rely on transposed convolutions and nearest/bilinear upsampling, which imprint periodic high-frequency artifacts---the well-documented ``checkerboard'' spectrum~\cite{zhang2019wifs,durall2020}. \textbf{Diffusion models}~\cite{ho2020,rombach2022} iteratively denoise Gaussian noise; latent diffusion additionally decodes through a learned autoencoder. Corvi \textit{et al.}~\cite{corvi2023} and Ricker \textit{et al.}~\cite{ricker2024} document systematic mid/high-frequency deviations of diffusion outputs from natural-image spectra, including residual periodic peaks tied to decoder upsampling factors. \textbf{Autoregressive and patch-based transformers}~\cite{betker2023} generate token-by-token or patch-by-patch, occasionally producing low-frequency structural inconsistencies at patch boundaries. Natural photographs, by contrast, exhibit a characteristic power-law spectral decay and carry camera-specific sensor noise (PRNU) across the spectrum~\cite{cozzolino2019}. The band-specific distribution of artifacts across generator families is the central empirical motivation for multi-band analysis.
+
+\subsection{Spatial-Domain Detection}
+Wang \textit{et al.}~\cite{wang2020} showed that a ResNet-50 trained on ProGAN images with careful JPEG/blur augmentation generalizes surprisingly well across GANs, establishing the standard training-augmentation baseline; subsequent work exposed the limits of this recipe on diffusion models~\cite{corvi2023}. Xception~\cite{chollet2017} became the standard face-forensics backbone through FaceForensics++~\cite{rossler2019}. EfficientNet~\cite{tan2019} and ResNet~\cite{he2016} remain strong general-purpose baselines. The persistent weakness of spatial detectors is distribution shift: cross-generator accuracy drops of 15--25 points are typical~\cite{ojha2023,zhu2023genimage}, and recent analyses attribute much of the in-distribution success to semantic shortcuts rather than forensic evidence~\cite{yan2025sanity}.
+
+\subsection{Frequency-Domain Forensics}
+Zhang \textit{et al.}~\cite{zhang2019wifs} identified periodic spectral artifacts of GAN upsampling and simulated them for detector training. Durall \textit{et al.}~\cite{durall2020} showed CNN generators fail to reproduce natural spectral decay. Frank \textit{et al.}~\cite{frank2020} demonstrated that simple classifiers on DCT spectra detect GAN images across architectures and traced the artifacts to upsampling choices. For diffusion models, Corvi \textit{et al.}~\cite{corvi2023} documented distinctive fingerprints that survive resizing and moderate compression. FreqNet~\cite{tan2024freqnet} inserts frequency-space learning blocks (FFT $\rightarrow$ learnable magnitude/phase transforms $\rightarrow$ iFFT) inside a compact 1.9M-parameter CNN, explicitly forcing the detector to attend to high-frequency content and improving cross-GAN generalization. NPR~\cite{tan2024npr} captures neighboring-pixel relationships induced by upsampling layers, achieving strong transfer with a simple representation. DIRE~\cite{wang2023dire} measures reconstruction error under a diffusion prior; DRCT~\cite{chen2024drct} extends reconstruction-based contrastive training toward universal detection.
+
+Our work differs from these single-representation approaches in three respects: (i) we decompose the spectrum into multiple \emph{radial bands} and process each with a dedicated extractor, preserving both spectral locality and spatial structure within each band; (ii) we \emph{learn} the band fusion via cross-attention instead of fixing a high-pass or aggregate representation \textit{a priori}; and (iii) we re-inject physical band-energy statistics through FGA gating, coupling the learned representation to a verifiable property of the input.
+
+\subsection{Transformer and Foundation-Model Detectors}
+Vision transformers~\cite{dosovitskiy2021,touvron2021,liu2021} form a second axis of related work. Ojha \textit{et al.}~\cite{ojha2023} showed that a linear probe on frozen CLIP~\cite{radford2021} features (UnivFD) generalizes better across generator families than end-to-end training---evidence that generic pretrained features avoid generator-specific overfitting---at the cost of an 87M--300M parameter backbone. Hybrid spatial--frequency dual-branch networks~\cite{miao2023hierarchical} fuse a spatial stream with a frequency stream at the feature level. MFFT inverts this design: the frequency decomposition is the \emph{primary} representation---every stream is a band-limited view of the input---and attention operates \emph{across bands} rather than across modalities. This keeps the model at 372K--6.3M parameters, two orders of magnitude below CLIP-scale detectors, which matters decisively for platform-scale screening.
+
+\subsection{Benchmarks and the Generalization Problem}
+GenImage~\cite{zhu2023genimage} introduced a million-scale benchmark spanning eight generators (Midjourney, Stable Diffusion V1.4/V1.5, ADM, GLIDE, Wukong, VQDM, BigGAN) with a cross-generator protocol---train on one generator, test on all---that has become the de facto standard for generalization claims. Yan \textit{et al.}~\cite{yan2025sanity} assembled Chameleon, an in-the-wild test set on which most published detectors degrade dramatically, underscoring the gap between benchmark and deployment performance. For manipulated (rather than fully synthetic) content, FaceForensics++~\cite{rossler2019}, Celeb-DF~\cite{li2020celebdf}, and DFDC~\cite{dolhansky2020} are the standard corpora; our full corpus (Section~\ref{sec:dataset}) incorporates their real and fake subsets. The full-scale study will adopt the GenImage cross-generator protocol directly. \fullscale{LOGO results}
+
+\subsection{Explainability in Image Forensics}
+Post-hoc attribution methods---Grad-CAM~\cite{selvaraju2017}, integrated gradients~\cite{sundararajan2017}---explain classifier decisions but inherit the classifier's biases and are vulnerable to gradient saturation. In forensic settings, evidence that can be \emph{independently verified} is preferable to evidence that merely reflects model internals. MFFT's per-band heatmaps are deterministic functions of the input image (band-limited energy maps), so a third party can reproduce them with standard spectral tools without access to the model---a property we call constitutive rather than attributional evidence, discussed in Section~VI-E.
+
+% ============================================================
+\section{Method}
+% ============================================================
+
+\subsection{Architecture Overview}
+For an input image $\mathbf{x} \in \mathbb{R}^{3 \times H \times W}$, MFFT computes
+\begin{equation}
+\hat{y} = \mathrm{MLP}\!\left(\mathrm{FGA}\!\left(\mathrm{CAF}\!\left(\{f_b(\mathbf{x}_b)\}_{b=1}^{B}\right)\right)\right),
+\label{eq:pipeline}
+\end{equation}
+where $\mathbf{x}_b$ is the band-limited image for band $b$, $f_b$ are per-band feature extractors, CAF is cross-attention fusion, and FGA is Frequency-Guided Attention. All four stages are differentiable, so the model trains end to end with standard backpropagation. Fig.~\ref{fig:arch} shows the complete pipeline; Fig.~\ref{fig:freq_decomp} illustrates the decomposition on a sample image.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig10_architecture.png}
+\caption{MFFT pipeline: FFT-based radial band decomposition, per-band CNN extractors with depthwise separable convolutions, cross-attention fusion across band tokens, frequency-guided gating, and MLP classification head.}
+\label{fig:arch}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig1_frequency_decomposition.png}
+\caption{Radial frequency decomposition of an input image into low (global structure), mid (texture), and high (fine detail and noise) bands. Each band image is a deterministic, independently reproducible function of the input.}
+\label{fig:freq_decomp}
+\end{figure}
+
+\subsection{Frequency Decomposition}
+\label{sec:decomp}
+We compute the 2D discrete Fourier transform of each RGB channel of the input with orthonormal normalization:
+\begin{equation}
+X(u,v) = \frac{1}{\sqrt{HW}}\sum_{h=0}^{H-1} \sum_{w=0}^{W-1} x(h,w)\, e^{-2\pi i \left(\frac{uh}{H} + \frac{vw}{W}\right)},
+\label{eq:dft}
+\end{equation}
+shift the DC component to the center, and apply binary radial masks
+\begin{equation}
+M_b(u,v) = \mathbb{1}\!\left[\, r_{\mathrm{lo}}^{(b)} \le r(u,v) < r_{\mathrm{hi}}^{(b)} \,\right],
+\label{eq:mask}
+\end{equation}
+with $r(u,v) = \sqrt{(u-u_c)^2 + (v-v_c)^2}$, center $(u_c, v_c) = (H/2, W/2)$, and cutoffs relative to $r_{\max}=\min(H,W)/2$. The three-band configuration uses \textbf{Low} $[0, 0.15)$, \textbf{Mid} $[0.15, 0.45)$, \textbf{High} $[0.45, 1.0]$; the four-band configuration (used by MFFT-Large) partitions into $[0,0.1)$, $[0.1,0.3)$, $[0.3,0.6)$, $[0.6,1.0]$. The masked spectrum $\tilde{X}_b = X_{\mathrm{shifted}} \odot M_b$ is inverted per channel (inverse shift, inverse FFT, real part) to a 3-channel spatial band image:
+\begin{equation}
+\mathbf{x}_b = \mathcal{F}^{-1}\!\big(\mathcal{F}_{\mathrm{shift}}^{-1}(\tilde{X}_b)\big) \in \mathbb{R}^{3 \times H \times W}.
+\end{equation}
+The module is non-parametric; masks are computed at the input resolution, so the runtime cost is $B$ FFT/iFFT pairs per image (under 10\% of total inference time; Section~V-F). The low band captures global structure and composition; the mid band captures texture-scale content where diffusion denoising signatures concentrate; the high band captures fine detail, edges, and noise where GAN upsampling artifacts and the absence of sensor noise are most visible. The band cutoffs were chosen to align with these qualitative regimes; the four-band alternative is evaluated in the ablation study (Section~V-D), and learnable soft boundaries are planned future work.
+
+\subsection{Per-Band Feature Extraction}
+\label{sec:extractor}
+Each band uses an architecturally identical but weight-independent extractor $f_b$, allowing specialization to its band's statistics. Table~\ref{tab:extractor} details the layer structure. A $3\times3$ stem convolution (stride 2, 32 channels, BatchNorm, GELU) is followed by three stages of depthwise separable convolutions (each: $3\times3$ depthwise stride-2 convolution, $1\times1$ pointwise expansion, BatchNorm, GELU), global average pooling, and a linear projection to the token dimension $d$ with LayerNorm. Depthwise separability reduces per-stage parameters by roughly a factor of $k^2 C_{\mathrm{out}} / (k^2 + C_{\mathrm{out}})$ relative to standard convolutions, keeping each extractor at approximately 80K ($d{=}128$), 146K ($d{=}384$), or 245K ($d{=}768$) parameters.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Per-band feature extractor ($d = 384$, Base scale, shown). DW = depthwise, PW = pointwise convolution.}
+\label{tab:extractor}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrr}
+\toprule
+Stage & Operation & Output ch. & Params \\
+\midrule
+Stem    & Conv $3{\times}3$, s2 + BN + GELU        & 32  & 928 \\
+Block 1 & DW $3{\times}3$ s2 + PW $1{\times}1$ + BN + GELU & 64  & 2{,}464 \\
+Block 2 & DW $3{\times}3$ s2 + PW $1{\times}1$ + BN + GELU & 128 & 9{,}024 \\
+Block 3 & DW $3{\times}3$ s2 + PW $1{\times}1$ + BN + GELU & 256 & 34{,}432 \\
+Pool    & AdaptiveAvgPool $\rightarrow 1{\times}1$  & 256 & 0 \\
+Head    & Linear $256 \rightarrow d$ + LayerNorm    & $d$ & 99{,}456 \\
+\midrule
+\multicolumn{3}{l}{Total per extractor ($d=384$)} & $\approx$146K \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cross-Attention Fusion (CAF)}
+\label{sec:caf}
+Band embeddings $z_1,\dots,z_B \in \mathbb{R}^{d}$ are stacked into $Z \in \mathbb{R}^{B \times d}$ and passed through multi-head attention in which every band attends to every band:
+\begin{align}
+Q &= ZW_Q, \quad K = ZW_K, \quad V = ZW_V, \label{eq:qkv}\\
+Z' &= \mathrm{Linear}\!\big(\mathrm{softmax}\!\big(QK^{\!\top}\!/\sqrt{d_k}\big)V\big) + Z, \label{eq:attn}
+\end{align}
+with $W_Q, W_K, W_V \in \mathbb{R}^{d \times d}$, $d_k = d/h$, and $h \in \{4, 6, 12\}$ heads for the Tiny/Base/Large variants. The residual connection preserves band-specific information while the attention path expresses input-dependent inter-band relationships. The motivating example is spectral consistency: natural images exhibit a characteristic power-law linking energy across bands, so \emph{anomalous high-frequency energy given the observed low-frequency structure} is evidence of synthesis---a relational cue that no single band and no element-wise fusion rule can represent. Table~\ref{tab:attnparams} gives the exact parameter accounting for the fusion and gating stages of each variant.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Fusion and gating parameters by variant.}
+\label{tab:attnparams}
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Component & Tiny ($d{=}128$) & Base ($d{=}384$) & Large ($d{=}768$) \\
+\midrule
+QKV projection   & 49{,}152  & 442{,}368 & 1{,}769{,}472 \\
+Output projection& 16{,}512  & 147{,}840 & 590{,}592 \\
+FGA gate MLP     & 8{,}384   & 74{,}208  & 295{,}872 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Frequency-Guided Attention (FGA)}
+\label{sec:fga}
+Standard attention weights are functions of learned projections and can exploit dataset-specific correlations. FGA adds a weighting derived from a \emph{physical} property of the input that no learned prior can override. Let $m_b$ be the mean absolute magnitude of band image $\mathbf{x}_b$,
+\begin{equation}
+m_b = \frac{1}{CHW}\sum_{c,h,w} \left| x_b(c,h,w) \right|, \qquad \boldsymbol{\alpha} = \mathrm{softmax}(\mathbf{m}),
+\end{equation}
+so $\boldsymbol{\alpha} \in \mathbb{R}^{B}$ measures where the input's spectral energy actually resides. FGA modulates the fused tokens as
+\begin{equation}
+\tilde{Z} = \sigma\!\big(\mathrm{MLP}_{\mathrm{gate}}(Z')\big) \odot \big(\boldsymbol{\alpha} \cdot Z'\big),
+\label{eq:fga}
+\end{equation}
+combining the physics-derived band weighting with a learned per-feature gate ($d \rightarrow d/4 \rightarrow d$ bottleneck, ReLU, sigmoid). The intended benefit is robustness: on out-of-distribution inputs, learned attention may extrapolate arbitrarily, whereas $\boldsymbol{\alpha}$ remains a faithful summary of the input's spectrum. Whether this bias helps or constrains accuracy is an empirical question that our ablation addresses directly (Section~V-D).
+
+\subsection{Classification Head and Training Objective}
+The gated tokens are flattened to $\mathbb{R}^{B \cdot d}$, normalized (LayerNorm), and classified by a three-layer MLP: Linear $\rightarrow d$ (GELU, dropout 0.2), Linear $\rightarrow d/2$ (GELU, dropout 0.1), Linear $\rightarrow 2$. Head sizes are approximately 58K (Tiny), 519K (Base), and 2.66M (Large) parameters. We minimize cross-entropy with label smoothing $\epsilon = 0.1$:
+\begin{equation}
+\mathcal{L} = -\sum_{i=1}^N \sum_{c=1}^2 \left[(1-\epsilon)\,\delta_{y_i,c} + \tfrac{\epsilon}{2}\right] \log p_c(\mathbf{x}_i).
+\label{eq:loss}
+\end{equation}
+Weights are initialized with truncated normal (std 0.02).
+
+\subsection{Model Variants and Complexity}
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{MFFT variants (pilot configuration, $224\times224$ input). Parameter counts and checkpoint sizes are measured, not estimated.}
+\label{tab:variants}
+\centering
+\begin{tabular}{lccccc}
+\toprule
+Variant & $d$ & Heads & Bands & Params & Checkpoint \\
+\midrule
+MFFT-Tiny  & 128 & 4  & 3 & 372{,}450   & 1.5 MB \\
+MFFT-Base  & 384 & 6  & 3 & 1{,}622{,}690 & 6.5 MB \\
+MFFT-Large & 768 & 12 & 4 & 6{,}301{,}250 & 25.3 MB \\
+\bottomrule
+\end{tabular}
+\end{table}
+Table~\ref{tab:variants} lists the three variants. Tiny and Base use the three-band decomposition; Large scales both the token dimension and the band count, using the four-band partition. Because attention operates over only $B \in \{3,4\}$ tokens, its cost is negligible ($O(B^2 d)$); total compute is dominated by the per-band CNN extractors and the FFT pairs. Tiny targets edge and mobile deployment, Base standard servers, Large maximum accuracy.
+
+% ============================================================
+\section{Experimental Setup}
+% ============================================================
+
+\subsection{Corpus}
+\label{sec:dataset}
+We assembled a corpus of 2{,}696{,}760 images with a verified metadata manifest recording identifier, path, label, source, generator, dimensions, file size, and MD5 hash for every image. Table~\ref{tab:corpus} reports the exact composition, computed directly from the manifest. Real photographs (1.96M) come from Places365, ImageNet, the Pexels/Unsplash/Pixabay photography APIs, and Open Images V7. AI-generated images (608K) come from six generator sources: BigGAN (324K, including the GenImage~\cite{zhu2023genimage} subset), GLIDE (162K), Stable Diffusion (100K), DALL-E~3 (19K), and Midjourney (3.1K). Manipulated (deepfake) content (125K) comes from Celeb-DF~V2~\cite{li2020celebdf}, FaceForensics++~\cite{rossler2019}, and DFDC~\cite{dolhansky2020}. Zero-byte and corrupt files are filtered at manifest construction; 562 exact duplicates were removed by hash.
+
+We note two properties relevant to the full-scale design. First, the corpus is class-imbalanced (72.8\% real), so full-scale training will use balanced sampling or reweighting; the pilot sidesteps the issue by drawing a balanced subset. Second, generator diversity is currently concentrated in GAN (BigGAN) and early-diffusion (GLIDE, SD) families; the remaining GenImage families (ADM, VQDM, Wukong, Midjourney at scale) and newer samplers (SDXL, Flux) are being integrated before the full-scale run so that leave-one-generator-out evaluation covers the full protocol. \fullscale{final corpus table}
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Corpus composition (from the verified manifest of 2{,}696{,}760 images).}
+\label{tab:corpus}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llr}
+\toprule
+Class & Source / Generator & Images \\
+\midrule
+\multirow{4}{*}{Real (1{,}963{,}561)}
+ & Places365            & 1{,}839{,}960 \\
+ & ImageNet             & 98{,}001 \\
+ & Pexels/Unsplash/Pixabay & 25{,}000 \\
+ & Open Images V7       & 600 \\
+\midrule
+\multirow{5}{*}{AI-generated (608{,}072)}
+ & BigGAN (incl.\ GenImage) & 323{,}995 \\
+ & GLIDE                & 162{,}000 \\
+ & Stable Diffusion     & 100{,}000 \\
+ & DALL-E 3             & 18{,}998 \\
+ & Midjourney           & 3{,}079 \\
+\midrule
+\multirow{3}{*}{Deepfake (125{,}127)}
+ & Celeb-DF V2          & 101{,}031 \\
+ & FaceForensics++      & 20{,}351 \\
+ & DFDC                 & 3{,}745 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Pilot Protocol}
+\label{sec:pilot}
+From the corpus we drew a class-balanced subset of 5{,}000 images (2{,}500 real / 2{,}500 AI, where the AI class mixes fully generated and manipulated content) with a stratified 80/10/10 split (Table~\ref{tab:split}). All thirteen models train for \textbf{one epoch} at $224\times224$ under identical conditions. The single-epoch budget is a deliberate control: it equalizes compute across models and tests which architectures extract signal fastest from limited gradient steps, while acknowledging that pretrained baselines retain an advantage from their initialization. Table~\ref{tab:hyper} lists the complete hyperparameter set.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Pilot data split (balanced subset of the corpus).}
+\label{tab:split}
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Split & Total & Real & AI & Fraction \\
+\midrule
+Train      & 4{,}000 & 2{,}000 & 2{,}000 & 80\% \\
+Validation & 500     & 250     & 250     & 10\% \\
+Test       & 500     & 250     & 250     & 10\% \\
+\midrule
+Full pilot subset & 5{,}000 & 2{,}500 & 2{,}500 & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.15}
+\caption{Training configuration (identical for all models).}
+\label{tab:hyper}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{ll}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Optimizer & AdamW ($\beta_1{=}0.9$, $\beta_2{=}0.999$) \\
+Learning rate & $3\times10^{-4}$ \\
+Weight decay & 0.05 \\
+Batch size (effective) & 32 \\
+Warmup & 500 steps, linear from $0.01\times$ \\
+Schedule & Cosine annealing w/ warm restarts \\
+Gradient clipping & max-norm 1.0 \\
+Label smoothing & $\epsilon = 0.1$ \\
+Input resolution & $224\times224$ (pilot) \\
+Epochs & 1 (pilot) \\
+\midrule
+\multicolumn{2}{l}{\textit{Augmentations (train)}} \\
+Random resized crop & scale 0.85--1.0 \\
+Horizontal flip & $p = 0.5$ \\
+Rotation & $\pm 10^{\circ}$ \\
+Color jitter & b/c/s 0.1, hue 0.05 \\
+Random sharpness & factor 0.5--1.5, $p{=}0.3$ \\
+Random erasing & $p = 0.25$ \\
+Normalization & ImageNet mean/std \\
+\midrule
+\multicolumn{2}{l}{\textit{Preprocessing (eval)}} \\
+Resize + center crop & to input resolution \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Full-scale protocol (pending).} \fullscale{2.16M/270K/270K stratified split, 20 epochs, $384\times384$, mixed precision (FP16), balanced sampling, JPEG/resize/blur augmentation, per-generator hold-out}
+
+\subsection{Baselines}
+\label{sec:baselines}
+Ten baselines cover the main detector families under the identical pilot protocol; Table~\ref{tab:baseline_overview} summarizes them. \textbf{From scratch:} SimpleCNN, a five-stage plain CNN (Conv-BN-GELU, stride 2) with a small MLP head; LightViT, a compact ViT trained from random initialization; DeiT-S~\cite{touvron2021} (from scratch, isolating the architecture from its usual distillation recipe); and FreqDetect, our re-implementation of radial-spectrum classification after Frank \textit{et al.}~\cite{frank2020}---16 radial FFT magnitude bins per channel (48 features) classified by a three-layer MLP. \textbf{ImageNet-pretrained:} ResNet-18/50~\cite{he2016}, EfficientNet-B0~\cite{tan2019}, Swin-T~\cite{liu2021}, and ViT-B/16~\cite{dosovitskiy2021}, each with the classifier head replaced and the full network fine-tuned. \textbf{Foundation-model probe:} a linear probe on frozen CLIP ViT-B features~\cite{radford2021}, following the UnivFD recipe~\cite{ojha2023}.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Baseline overview.}
+\label{tab:baseline_overview}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrl}
+\toprule
+Method & Family & Params & Initialization \\
+\midrule
+SimpleCNN   & plain CNN        & 422K   & random \\
+LightViT    & compact ViT      & 2.04M  & random \\
+DeiT-S~\cite{touvron2021} & ViT & 21.8M & random \\
+FreqDetect~\cite{frank2020} & spectral + MLP & 14.7K & random \\
+ResNet-18~\cite{he2016}   & CNN & 11.2M & ImageNet-1K \\
+ResNet-50~\cite{he2016}   & CNN & 23.5M & ImageNet-1K \\
+EfficientNet-B0~\cite{tan2019} & CNN & 4.0M & ImageNet-1K \\
+Swin-T~\cite{liu2021}     & hierarchical ViT & 27.5M & ImageNet-1K \\
+ViT-B/16~\cite{dosovitskiy2021} & ViT & 86.1M & ImageNet-1K \\
+CLIP+Linear~\cite{radford2021,ojha2023} & frozen VLM + probe & 87.9M & LAION \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation Metrics}
+On the held-out test split we report accuracy, precision, recall, and F1 with the AI class as positive:
+\begin{equation}
+\mathrm{Prec} = \frac{TP}{TP+FP}, \quad
+\mathrm{Rec} = \frac{TP}{TP+FN}, \quad
+F_1 = \frac{2 \cdot \mathrm{Prec} \cdot \mathrm{Rec}}{\mathrm{Prec} + \mathrm{Rec}},
+\end{equation}
+together with AUC-ROC computed from the predicted class-probability scores. Calibration is assessed by the expected calibration error over 10 equal-width confidence bins,
+\begin{equation}
+\mathrm{ECE} = \sum_{k=1}^{10} \frac{|B_k|}{N}\, \big| \mathrm{acc}(B_k) - \mathrm{conf}(B_k) \big|,
+\end{equation}
+and by the Brier score $\frac{1}{N}\sum_i (p_i - y_i)^2$. Full-scale results will add bootstrap 95\% confidence intervals (1{,}000 resamples) and McNemar tests against the strongest baseline. \fullscale{CIs and significance tests}
+
+% ============================================================
+\section{Pilot Results}
+% ============================================================
+
+\subsection{Main Comparison}
+\label{sec:main}
+Table~\ref{tab:main} presents the pilot comparison, grouped by initialization---the variable that dominates a 1-epoch experiment. Three findings follow.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Pilot comparison (1 epoch, 5K subset, $224\times224$). $^\dagger$trained from scratch; $^{*}$ImageNet/LAION-pretrained. Best per group in bold.}
+\label{tab:main}
+\centering
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{lrccccc}
+\toprule
+Method & Params & Acc. & Prec. & Rec. & F1 & AUC \\
+\midrule
+SimpleCNN$^\dagger$      & 422K   & 77.2 & 74.8 & 82.0 & 78.2 & 0.845 \\
+LightViT$^\dagger$       & 2.04M  & 50.8 & 50.5 & 85.6 & 63.5 & 0.591 \\
+DeiT-S$^\dagger$         & 21.8M  & 52.6 & 51.5 & 88.0 & 65.0 & 0.627 \\
+FreqDetect$^\dagger$~\cite{frank2020} & 14.7K & 50.0 & 50.0 & 100.0 & 66.7 & 0.534 \\
+\midrule
+ResNet-18$^{*}$~\cite{he2016}    & 11.2M  & 96.0 & 94.6 & 97.6 & 96.1 & 0.991 \\
+ResNet-50$^{*}$~\cite{he2016}    & 23.5M  & 97.2 & 96.8 & 97.6 & 97.2 & 0.998 \\
+EfficientNet-B0$^{*}$~\cite{tan2019} & 4.0M & \textbf{98.2} & 99.2 & 97.2 & 98.2 & 1.000 \\
+Swin-T$^{*}$~\cite{liu2021}      & 27.5M  & 95.2 & 96.3 & 94.0 & 95.1 & 0.992 \\
+ViT-B/16$^{*}$~\cite{dosovitskiy2021} & 86.1M & 54.8 & 81.6 & 12.4 & 21.5 & 0.622 \\
+CLIP+Linear$^{*}$~\cite{radford2021} & 87.9M & 66.8 & 78.4 & 46.4 & 58.3 & 0.765 \\
+\midrule
+MFFT-Tiny$^\dagger$  & 372K  & 81.6 & 75.5 & 93.6 & 83.6 & 0.931 \\
+MFFT-Base$^\dagger$  & 1.62M & 88.6 & 92.1 & 84.4 & 88.1 & 0.939 \\
+MFFT-Large$^\dagger$ & 6.30M & \textbf{91.4} & 87.9 & 96.0 & 91.8 & 0.964 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{(1) Among from-scratch models, MFFT wins decisively.} MFFT-Large (91.4\%, 0.964 AUC) leads the best from-scratch competitor (SimpleCNN, 77.2\%) by 14.2 points; even MFFT-Tiny (372K parameters) beats SimpleCNN by 4.4 points with 12\% fewer parameters. Attention-only models without pretraining collapse in this regime---LightViT (50.8\%) and DeiT-S (52.6\%) barely exceed chance---confirming the known data hunger of transformers lacking either pretraining or a strong inductive bias. MFFT contains attention yet avoids the collapse because attention operates over only three frequency-band tokens whose representations are produced by convolutional extractors; the frequency decomposition supplies the inductive bias that raw ViTs lack. The hand-crafted spectral baseline (FreqDetect) degenerates to always-positive prediction (recall 100\%, precision 50\%): aggregate radial statistics that separated GAN images from real ones in 2020 do not separate our mixed GAN/diffusion/deepfake class, underlining that \emph{learned, spatially-resolved} band representations---not spectral features per se---are what carries MFFT.
+
+\textbf{(2) Pretrained CNNs lead the pilot, as expected.} EfficientNet-B0 (98.2\%) and ResNet-50 (97.2\%) benefit from ImageNet initialization, an advantage one epoch of fine-tuning does not equalize. The pilot therefore cannot establish whether MFFT closes this gap at scale; that is the central question for the full-scale study, which will also include an ImageNet-pretrained MFFT variant to decouple architecture from initialization. \fullscale{20-epoch comparison and pretrained MFFT}. Notably, large pretrained \emph{transformers} do not dominate: ViT-B/16 (54.8\%) and CLIP linear probing (66.8\%) underperform badly with one epoch and 4K training images, consistent with their sample-inefficiency in low-shot fine-tuning.
+
+\textbf{(3) MFFT extracts signal quickly.} Reaching 88--91\% from random initialization within a single epoch supports the design claim that explicit frequency decomposition accelerates learning by removing the burden of discovering spectral structure from data. Section~\ref{sec:dynamics} quantifies this against the spatial-only ablation.
+
+\subsection{Training Dynamics}
+\label{sec:dynamics}
+Table~\ref{tab:dynamics} reports the single-epoch training trajectories of the three variants; Fig.~\ref{fig:training} plots the loss and accuracy progression for MFFT-Base. Two observations are noteworthy. First, all three variants converge to within a narrow validation-loss range (0.39--0.48) in one epoch, with no instability despite the from-scratch initialization---the warmup plus cosine schedule and gradient clipping suffice. Second, capacity translates into early accuracy monotonically at Base scale and above (Tiny 81.2\%, Base 88.2\%, Large 88.0\% validation), while the spatial-only ablation model reaches only 83.4\% validation accuracy under the identical budget (Table~\ref{tab:ablation}): at equal compute, the decomposition is worth roughly five validation points at Base scale.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Single-epoch training dynamics of the MFFT variants.}
+\label{tab:dynamics}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccc}
+\toprule
+Variant & Train loss & Val.\ loss & Train acc. & Val.\ acc. \\
+\midrule
+MFFT-Tiny  & 0.419  & 0.479 & 86.5 & 81.2 \\
+MFFT-Base  & 0.427  & 0.393 & 86.2 & 88.2 \\
+MFFT-Large & 0.436  & 0.422 & 85.7 & 88.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig2_training_history.png}
+\caption{Training history for MFFT-Base over the pilot epoch (loss and accuracy on train and validation splits).}
+\label{fig:training}
+\end{figure}
+
+\subsection{Per-Variant Analysis}
+\label{sec:variants}
+
+\subsubsection{MFFT-Base}
+On the 500-image test split, MFFT-Base attains 88.6\% accuracy, 92.1\% precision, 84.4\% recall, F1 88.1\%, and AUC 0.939. The confusion matrix (Fig.~\ref{fig:confusion_base}) shows TN=232, FP=18, FN=39, TP=211: a false-positive rate of 7.2\% on real images against a false-negative rate of 15.6\% on AI images. The FN:FP ratio of 2.2:1 reflects a conservative bias---ambiguous inputs are more often called real---which is the preferable error direction in settings where false accusations are costlier than missed detections. The ROC curve (Fig.~\ref{fig:roc_base}) and precision--recall curve (Fig.~\ref{fig:pr_base}) show usable operating points across the threshold range.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig3_confusion_matrix.png}
+\caption{MFFT-Base confusion matrix on the pilot test split (500 images).}
+\label{fig:confusion_base}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig4_roc_curve.png}
+\caption{MFFT-Base ROC curve (AUC = 0.939) on the pilot test split.}
+\label{fig:roc_base}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig5_pr_curve.png}
+\caption{MFFT-Base precision--recall curve on the pilot test split.}
+\label{fig:pr_base}
+\end{figure}
+
+\subsubsection{MFFT-Tiny}
+MFFT-Tiny reaches 81.6\% accuracy with the opposite error profile (Fig.~\ref{fig:confusion_tiny}): TN=174, FP=76, FN=16, TP=234, i.e., recall 93.6\% at precision 75.5\%. The 372K-parameter model detects almost all AI images but over-flags real ones---at this capacity the extractors appear to learn "any unusual frequency content $\Rightarrow$ AI" without the finer discrimination needed to absorb natural high-frequency variation (foliage, fabric, sensor noise) into the real class. Its AUC of 0.931, close to Base's 0.939, indicates that the \emph{ranking} of samples is nearly as good and the gap is largely a threshold/sharpness effect; threshold tuning or temperature scaling could trade its recall surplus for precision.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/tiny_model/fig/fig3_confusion_matrix.png}
+\caption{MFFT-Tiny confusion matrix: high recall (93.6\%), low precision (75.5\%)---the capacity-limited variant over-predicts the AI class.}
+\label{fig:confusion_tiny}
+\end{figure}
+
+\subsubsection{MFFT-Large}
+MFFT-Large achieves the best from-scratch result: 91.4\% accuracy, AUC 0.964 (Fig.~\ref{fig:roc_large}), with confusion matrix TN=217, FP=33, FN=10, TP=240 (Fig.~\ref{fig:confusion_large})---recall 96.0\% while keeping precision at 87.9\%. Compared with Tiny, the added capacity converts 43 false positives into true negatives while \emph{also} recovering 6 false negatives: scale improves both error types, not merely the threshold. Compared with Base, Large trades 15 additional false positives for 29 fewer false negatives, sitting at a more recall-oriented operating point with higher overall accuracy.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/large_model/fig/fig3_confusion_matrix.png}
+\caption{MFFT-Large confusion matrix on the pilot test split.}
+\label{fig:confusion_large}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/large_model/fig/fig4_roc_curve.png}
+\caption{MFFT-Large ROC curve (AUC = 0.964), the best from-scratch result in the pilot.}
+\label{fig:roc_large}
+\end{figure}
+
+\subsubsection{Per-Class and Per-Category Behavior}
+Table~\ref{tab:perclass} consolidates per-class precision/recall/F1 for all variants, and Table~\ref{tab:percat} breaks test accuracy down by content category (real photographs; fully AI-generated; AI-altered composites, i.e., manipulated real images). Two patterns are consistent. First, fully AI-generated images are detected well by all variants (81--95\%), with the capacity-limited Tiny paradoxically strongest (94.7\%)---a direct consequence of its trigger-happy operating point. Second, AI-\emph{altered} composites are detected at 89--100\% across variants; manipulated images that splice synthetic content into a real photograph appear to produce strong frequency discontinuities at manipulation boundaries that all model scales can exploit. We caution that the AI-altered cell rests on 44 test samples, so the 100\% figures carry wide uncertainty and require confirmation at scale. Fig.~\ref{fig:category} visualizes the category breakdown for MFFT-Base.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Per-class metrics on the pilot test split (250 per class).}
+\label{tab:perclass}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llccc}
+\toprule
+Variant & Class & Prec. & Rec. & F1 \\
+\midrule
+\multirow{2}{*}{MFFT-Tiny}  & Real & 91.6 & 69.6 & 79.1 \\
+                            & AI   & 75.5 & 93.6 & 83.6 \\
+\midrule
+\multirow{2}{*}{MFFT-Base}  & Real & 85.6 & 92.8 & 89.1 \\
+                            & AI   & 92.1 & 84.4 & 88.1 \\
+\midrule
+\multirow{2}{*}{MFFT-Large} & Real & 95.6 & 86.8 & 91.0 \\
+                            & AI   & 87.9 & 96.0 & 91.8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Test accuracy by content category (category sizes: real 250, AI-generated 206, AI-altered 44).}
+\label{tab:percat}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+Variant & Real & AI-generated & AI-altered \\
+\midrule
+MFFT-Tiny  & 69.6 & 94.7 & 88.6 \\
+MFFT-Base  & 92.8 & 81.1 & 100.0 \\
+MFFT-Large & 86.8 & 95.2 & 100.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig8_class_distribution.png}
+\caption{Per-category test accuracy for MFFT-Base across real, AI-generated, and AI-altered content.}
+\label{fig:category}
+\end{figure}
+
+\subsubsection{Calibration}
+Table~\ref{tab:calibration} reports calibration metrics; Fig.~\ref{fig:calibration} shows the MFFT-Base reliability diagram. Base is the best calibrated (ECE 0.080, Brier 0.096)---reasonable for a single-epoch model---and Large achieves the lowest Brier score (0.069) at somewhat higher ECE (0.101). Tiny is markedly miscalibrated (ECE 0.145, Brier 0.133), consistent with its skewed operating point. For forensic deployment, calibrated probabilities matter as much as accuracy: an analyst acting on a ``0.9 confidence'' flag needs that number to mean 90\%. Temperature scaling on the validation split is a standard post-hoc fix we will apply at full scale. \fullscale{post-calibration ECE}
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Calibration on the pilot test split.}
+\label{tab:calibration}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Variant & ECE & Brier \\
+\midrule
+MFFT-Tiny  & 0.145 & 0.133 \\
+MFFT-Base  & 0.080 & 0.096 \\
+MFFT-Large & 0.101 & 0.069 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig13_calibration_curve.png}
+\caption{Reliability diagram for MFFT-Base (ECE = 0.080, Brier = 0.096).}
+\label{fig:calibration}
+\end{figure}
+
+\subsection{Ablation Studies}
+\label{sec:ablation}
+Table~\ref{tab:ablation} isolates each architectural component under the pilot protocol at Base scale, Table~\ref{tab:bands} varies the number of bands, and Fig.~\ref{fig:ablation} summarizes all configurations. The findings:
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Component ablation (pilot protocol; Base-scale extractors). Validation and test accuracy in \%.}
+\label{tab:ablation}
+\centering
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccc}
+\toprule
+Configuration & Params & Val. & Test & $\Delta$ vs.\ spatial \\
+\midrule
+Spatial-only (no decomposition) & 958K  & 83.4 & 81.8 & --- \\
+Low band only                   & 958K  & 72.2 & 62.6 & $-19.2$ \\
+Mid band only                   & 958K  & 89.2 & 87.2 & $+5.4$ \\
+High band only                  & 958K  & 89.6 & 88.8 & $+7.0$ \\
+3 bands, concat fusion          & 958K  & 87.6 & 87.0 & $+5.2$ \\
+3 bands, average fusion         & 958K  & 90.6 & 89.8 & $+8.0$ \\
+3 bands, max fusion             & 958K  & 91.4 & \textbf{90.6} & $+8.8$ \\
+3 bands, cross-attn (no FGA)    & 1.55M & 90.0 & 90.0 & $+8.2$ \\
+Full MFFT-Base (CAF + FGA)      & 1.62M & 88.2 & 88.6 & $+6.8$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Band-count ablation (pilot protocol). The 4-band row is architecturally identical to MFFT-Large; see text.}
+\label{tab:bands}
+\centering
+\begin{tabular}{lccc}
+\toprule
+Bands & Partition & Params & Test acc. \\
+\midrule
+2 & low, high & 1.62M & 88.4 \\
+3 & low, mid, high & 1.62M & \textbf{88.6} \\
+4 & low, low-mid, mid-high, high & 6.30M & 85.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/ablation/ablation_summary.png}
+\caption{Ablation summary across all configurations (validation and test accuracy). Frequency decomposition dominates; fusion strategy differences are second-order at pilot scale.}
+\label{fig:ablation}
+\end{figure}
+
+\textbf{(1) Frequency decomposition is the dominant factor (RQ1: confirmed).} Every multi-band configuration beats the spatial-only baseline by 5.2--8.8 points at \emph{identical} parameter count (958K for all static-fusion rows), and even a single well-chosen band (high: 88.8\%; mid: 87.2\%) outperforms spatial-only (81.8\%). The gain cannot be attributed to capacity---it is the representation.
+
+\textbf{(2) Band identity matters (RQ3: answered).} The low band alone (62.6\%) is 19 points \emph{below} the spatial baseline: global luminance structure not only lacks discriminative traces but actively misleads at this scale. The high band is strongest (88.8\%), consistent with GAN upsampling artifacts and missing sensor noise; the mid band is close behind (87.2\%), consistent with diffusion denoising signatures. That mid and high are individually strong yet their fusion is stronger still (90.0--90.6\%) confirms the bands carry complementary, not redundant, information.
+
+\textbf{(3) The fusion paradox (RQ2: currently negative).} In the 1-epoch regime, parameter-free max pooling (90.6\%) edges out cross-attention (90.0\%), and adding FGA lowers accuracy to 88.6\%. We report this honestly rather than obscure it. Our working hypothesis is undertraining: CAF and FGA add 0.66M parameters whose benefit---modeling inter-band \emph{relationships}---requires more gradient steps to materialize than element-wise pooling, and the validation-vs-test pattern (max fusion: 91.4/90.6; CAF+FGA: 88.2/88.6) shows the attention path had not yet fit even the training distribution. The pilot cannot distinguish this hypothesis from the alternative that static fusion simply suffices; the full-scale study re-runs all nine configurations at 20 epochs to decide it, and if max fusion still wins, the honest engineering conclusion will be a simpler, cheaper final model. \fullscale{fusion-strategy ordering at 20 epochs}
+
+\textbf{(4) Band count and a run-variance caveat.} At matched Base capacity, two bands (dropping mid) lose only 0.2 points relative to three, consistent with the high band dominating; we retain the mid band because diffusion-specific signatures concentrate there~\cite{corvi2023} and the pilot's generator mix under-represents modern diffusion models. The 4-band row requires care: it is architecturally identical to MFFT-Large ($d{=}768$, 6.30M parameters), so it confounds band count with capacity---and its 85.0\% here versus the same architecture's 91.4\% in Table~\ref{tab:main} comes from two independent 1-epoch runs, indicating substantial run-to-run variance in this regime. The full-scale study will disentangle band count from capacity (4 bands at $d{=}384$) and report variance over seeds. \fullscale{seed-controlled band-count ablation}
+
+\subsection{Qualitative Analysis}
+\label{sec:qualitative}
+Fig.~\ref{fig:tsne} projects the fused band embeddings of the test split via t-SNE: after a single epoch, real and AI samples already form largely separated clusters, with the boundary region populated by the confusion-matrix errors. Fig.~\ref{fig:freq_response} plots the average spectral profiles that motivate the design---AI-generated images deviate from the natural power-law decay precisely in the mid/high ranges the ablation identifies as discriminative. Fig.~\ref{fig:heatmaps} shows per-band anomaly heatmaps: for a real photograph, high-band energy follows edges and texture as expected under natural image statistics, whereas AI-generated samples show spatially incoherent high-band energy or unnaturally smooth regions where texture should exist. Fig.~\ref{fig:samples} presents sample predictions with confidence scores, including representative errors: false positives cluster on heavily textured or heavily compressed real photographs, and false negatives on high-quality diffusion outputs with minimal high-frequency residue---the same failure modes reported for prior frequency methods~\cite{corvi2023,ricker2024}, which the full-scale robustness study will quantify.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig11_tsne_embeddings.png}
+\caption{t-SNE of MFFT-Base fused band embeddings on the test split after one epoch of training.}
+\label{fig:tsne}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig12_frequency_response.png}
+\caption{Average frequency response of real versus AI-generated test images. Deviations from natural spectral decay concentrate in the mid and high bands.}
+\label{fig:freq_response}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig7_anomaly_heatmaps.png}
+\caption{Intrinsic per-band anomaly heatmaps. Heatmaps derive directly from band-limited image content, not from post-hoc gradients, and are independently reproducible from the input alone.}
+\label{fig:heatmaps}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig6_sample_predictions.png}
+\caption{Sample MFFT-Base predictions with confidence scores and ground truth, including representative false positives (textured/compressed real photos) and false negatives (high-quality diffusion outputs).}
+\label{fig:samples}
+\end{figure}
+
+\subsection{Efficiency}
+\label{sec:efficiency}
+Table~\ref{tab:efficiency} relates accuracy to deployment cost. MFFT achieves its pilot accuracy at 372K--6.3M parameters and 1.5--25~MB checkpoints, versus 4--88M parameters for the pretrained baselines and $\sim$300M for CLIP-scale universal detectors~\cite{ojha2023}. MFFT-Large approaches ResNet-18's pilot accuracy (91.4 vs.\ 96.0) with 44\% fewer parameters \emph{and no pretraining}; MFFT-Tiny outperforms the similarly-sized SimpleCNN by 4.4 points. The FFT decomposition adds under 10\% to inference latency since masks are precomputed and the transform is $O(HW \log HW)$. Attention cost is negligible at 3--4 band tokens. This footprint permits platform-scale screening and edge deployment where foundation-model detectors are impractical.
+
+\begin{table}[!t]
+\renewcommand{\arraystretch}{1.2}
+\caption{Accuracy--efficiency comparison (from-scratch models).}
+\label{tab:efficiency}
+\centering
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrc}
+\toprule
+Model & Params & Checkpoint & Test acc. \\
+\midrule
+FreqDetect~\cite{frank2020} & 14.7K & $<$0.1 MB & 50.0 \\
+MFFT-Tiny   & 372K   & 1.5 MB  & 81.6 \\
+SimpleCNN   & 422K   & 1.7 MB  & 77.2 \\
+MFFT-Base   & 1.62M  & 6.5 MB  & 88.6 \\
+LightViT    & 2.04M  & 8.2 MB  & 50.8 \\
+MFFT-Large  & 6.30M  & 25.3 MB & 91.4 \\
+DeiT-S~\cite{touvron2021} & 21.8M & 87 MB & 52.6 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ============================================================
+\section{Discussion}
+% ============================================================
+
+\subsection{What the Pilot Establishes}
+The pilot supports three of the five research questions. \textbf{RQ1 (confirmed):} explicit frequency decomposition improves detection over spatial-only processing by 5--9 points at identical parameter count and compute. \textbf{RQ3 (answered):} the discriminative signal resides in the mid and especially high bands; the low band alone is counterproductive. \textbf{RQ5 (supported):} among from-scratch models the architecture is decisively parameter-efficient---91.4\% at 6.3M parameters where plain CNNs reach 77\% and compact ViTs collapse. Two questions remain open. \textbf{RQ2 (currently negative):} learned cross-attention fusion does not yet beat max pooling; the full-scale study decides whether this is undertraining or a real ceiling. \textbf{RQ4 (deferred):} no cross-generator or cross-dataset experiment exists in the pilot, so no generalization claim is made here. We consider stating these open questions explicitly to be a feature of this draft: they define exactly what the full-scale campaign must measure, with the hypotheses registered in advance (Section~VIII).
+
+\subsection{Why Multi-Band Analysis Should Generalize (Hypothesis)}
+The mechanistic argument for multi-band robustness is that a generator may suppress artifacts in one band---modern GAN variants mitigate checkerboarding; diffusion models increasingly match natural spectra at low frequencies---but eliminating traces \emph{simultaneously across all bands} requires matching the full joint spectral distribution of natural images, which no current sampler achieves~\cite{corvi2023,ricker2024}. Cross-attention over bands can in principle exploit inter-band consistency (natural images exhibit characteristic spectral decay linking bands), a relational cue unavailable to single-band methods, and FGA anchors the fused representation to the input's physical spectrum, limiting the room for semantic shortcuts of the kind that undermine spatial detectors in the wild~\cite{yan2025sanity}. These remain hypotheses until the leave-one-generator-out evaluation completes. \fullscale{LOGO evaluation on the GenImage protocol}
+
+\subsection{Interpreting the Fusion Paradox}
+Three explanations are consistent with the pilot data. (a)~\emph{Undertraining}: relational weights need more gradient steps than element-wise pooling; the attention configurations' validation--test gap pattern supports this. (b)~\emph{Task simplicity at pilot scale}: with a generator mix dominated by BigGAN and GLIDE, whose artifacts are strong and band-localized, picking the loudest band (max pooling) may simply be optimal, and relational cues add nothing; a more diverse generator mix at full scale would then favor adaptive fusion. (c)~\emph{Over-regularization}: FGA's physics-derived $\boldsymbol{\alpha}$ weighting constrains the fused representation; if the constraint is misaligned with the task, it costs accuracy in-distribution but may still buy robustness out-of-distribution---measurable only with the full-scale robustness suite. The experimental design of Section~VIII distinguishes (a) from (b)/(c) by re-running the ablation at 20 epochs, and (b) from (c) by comparing in-distribution and cross-generator deltas for the FGA and no-FGA models.
+
+\subsection{Scaling Behavior Across Variants}
+The three variants trace an informative capacity path. Tiny (372K) achieves high recall but poor precision and calibration---enough capacity to detect spectral anomalies, not enough to model the natural variability of real photographs. Base (1.62M) is the most balanced and best calibrated. Large (6.30M) improves both error types over Tiny and overall accuracy over Base, settling at a recall-oriented operating point (96.0\% recall at 87.9\% precision). The monotone AUC progression (0.931 $\rightarrow$ 0.939 $\rightarrow$ 0.964) indicates genuine representational gains with scale, not threshold artifacts. For deployment, this suggests: Tiny as a high-recall pre-filter whose flags are confirmed downstream; Base where calibrated probabilities matter; Large where accuracy dominates cost.
+
+\subsection{Interpretability: Constitutive Versus Attributional Evidence}
+Because band images are deterministic functions of the input (Section~\ref{sec:decomp}), the per-band heatmaps of Fig.~\ref{fig:heatmaps} constitute \emph{constitutive} evidence---an analyst can regenerate them with any FFT tool and verify the flagged anomaly exists in the image itself. Post-hoc saliency such as Grad-CAM~\cite{selvaraju2017} or integrated gradients~\cite{sundararajan2017} instead produces \emph{attributional} evidence---a statement about the model, subject to gradient saturation and attribution error, and unverifiable without model access. In forensic and journalistic workflows this distinction is material: constitutive evidence survives cross-examination that attributional evidence may not. Combined with calibrated confidence (Section~\ref{sec:variants}) and per-band FGA weights indicating \emph{which} spectral range drove a decision, MFFT supports a human-in-the-loop protocol in which the system's output is an inspectable evidence package rather than a bare score.
+
+\subsection{Practical Implications}
+For practitioners, the pilot suggests four guidelines. First, if a detector must be trained from scratch---for data-governance reasons, or for input modalities where no pretrained backbone exists---explicit frequency decomposition is the highest-leverage architectural choice we measured (+5 to +9 points at equal cost). Second, compact attention over a few semantically meaningful tokens (here, bands) avoids the data hunger of full patch-token ViTs. Third, calibration should be reported alongside accuracy; our variants differ more in ECE than in AUC, and deployment consequences differ accordingly. Fourth, efficiency claims should be grounded in deployment artifacts (parameters, checkpoint size, latency overhead) rather than FLOPs alone; MFFT's 1.5--25~MB checkpoints permit on-device screening that 300M-parameter universal detectors cannot.
+
+% ============================================================
+\section{Limitations of This Draft}
+% ============================================================
+\begin{enumerate}
+    \item \textbf{Pilot scale only.} All results are 1-epoch, 5K-subset, $224\times224$; absolute numbers will change at scale, and nothing here is a state-of-the-art comparison.
+    \item \textbf{No generalization evidence yet.} No cross-generator, cross-dataset, or robustness (JPEG, resize, blur) evaluation has been run; RQ4 is entirely open.
+    \item \textbf{Initialization confound.} Comparisons against pretrained baselines conflate architecture with initialization; the matched-pretraining MFFT variant at full scale addresses this.
+    \item \textbf{Small cells.} The AI-altered category has 44 test samples; its 100\% figures carry wide uncertainty.
+    \item \textbf{The fusion paradox is unresolved.} The pilot ordering (max $>$ CAF $>$ CAF+FGA) contradicts the motivating hypothesis and must be settled at scale before the architecture is finalized.
+    \item \textbf{Corpus skew.} The current generator mix over-represents BigGAN/GLIDE and under-represents modern diffusion samplers; conclusions about band importance may shift as the mix diversifies.
+    \item \textbf{Design choices untested.} Binary radial masks with fixed cutoffs and the specific band partitions are pilot-validated but not optimized; learnable soft band boundaries are a planned extension. The band-count comparison additionally confounds band count with capacity (the four-band configuration is the Large-scale architecture), so it bounds rather than isolates the effect of finer partitioning.
+\end{enumerate}
+
+% ============================================================
+\section{Planned Full-Scale Study}
+% ============================================================
+The forthcoming campaign on university DGX infrastructure will train all thirteen models for 20 epochs at $384\times384$ with mixed precision on the full corpus (stratified 80/10/10: $\sim$2.16M/270K/270K) using balanced sampling, and will add the components required for a complete evaluation:
+\begin{enumerate}
+    \item \textbf{Cross-generator hold-out (RQ4):} leave-one-generator-out over the GenImage families plus DALL-E~3 and Midjourney, following the protocol of~\cite{zhu2023genimage}; mean cross-generator accuracy is the primary endpoint.
+    \item \textbf{Cross-dataset transfer:} evaluation on CIFAKE and the in-the-wild Chameleon set~\cite{yan2025sanity} without retraining.
+    \item \textbf{Robustness suite:} accuracy under JPEG quality 30--95, downscaling to 0.25--1.0$\times$, and Gaussian blur, following~\cite{wang2020,corvi2023}; JPEG/resize/blur augmentation added to training.
+    \item \textbf{Statistical rigor:} bootstrap 95\% confidence intervals (1{,}000 resamples) on all headline metrics and McNemar tests against the strongest baseline.
+    \item \textbf{Matched-pretraining variant:} MFFT with ImageNet-pretrained band extractors, decoupling architecture from initialization.
+    \item \textbf{Full ablation re-run:} all nine configurations of Table~\ref{tab:ablation} at 20 epochs, pre-registering the fusion-paradox hypotheses of Section~VI-C.
+    \item \textbf{Calibration:} temperature scaling on validation, reporting pre/post ECE.
+\end{enumerate}
+Pre-registered hypotheses: \textbf{H1} --- the frequency-decomposition advantage over spatial-only persists at full training; \textbf{H2} --- CAF+FGA overtakes max pooling once trained to convergence on a diverse generator mix; \textbf{H3} --- MFFT's cross-generator degradation is smaller than that of spatial baselines of comparable or larger capacity; \textbf{H4} --- FGA improves robustness under post-processing even if in-distribution accuracy is unchanged. Outcomes will be reported for all four regardless of direction.
+
+% ============================================================
+\section{Ethical Considerations}
+% ============================================================
+Detection systems for synthetic media carry dual-use and fairness risks. The intended use of MFFT is defensive: supporting journalists, fact-checkers, forensic analysts, and content-moderation teams. False positives risk wrongly discrediting authentic material---our conservative operating points and calibrated confidences are chosen to mitigate this, and we recommend human review of all flags. False negatives risk unwarranted trust; no detector output should be treated as proof. Publishing discriminative features could inform evasion; we judge the transparency and reproducibility benefits to outweigh this, consistent with community norms, and note that the underlying artifacts stem from generator architecture rather than from secrets our disclosure reveals. Detection accuracy may vary across demographic and cultural content distributions; the full-scale study's per-category analysis will report performance disaggregated by content type, and the corpus draws real photographs from geographically diverse sources. Code, manifests, and checkpoints will be released to enable independent auditing.
+
+% ============================================================
+\section{Conclusion}
+% ============================================================
+We presented MFFT, a compact multi-band frequency architecture for AI-generated image detection, with a complete design analysis and a controlled pilot validation. The pilot delivers three verified findings: from scratch and at equal compute, explicit frequency decomposition improves detection by 5--9 points over spatial-only processing at identical parameter count; the discriminative signal concentrates in the mid and high frequency bands; and MFFT-Large leads all from-scratch models at 91.4\% accuracy (0.964 AUC) with 6.3M parameters and a 25~MB checkpoint, while MFFT-Base offers the best calibration (ECE 0.080) at 1.6M parameters. The pilot also surfaces an open question the full-scale study must answer---whether learned cross-attention fusion overtakes simple pooling with adequate training and generator diversity---and defers all generalization claims to a pre-registered leave-one-generator-out protocol on the 2.7M-image corpus. We release code, manifests, and checkpoints to make both the pilot and the forthcoming full-scale results reproducible.
+
+% ============================================================
+\begin{thebibliography}{40}
+
+\bibitem{rombach2022} R.~Rombach, A.~Blattmann, D.~Lorenz, P.~Esser, and B.~Ommer, ``High-resolution image synthesis with latent diffusion models,'' in \textit{Proc. IEEE/CVF CVPR}, 2022, pp. 10684--10695.
+\bibitem{betker2023} J.~Betker \textit{et al.}, ``Improving image generation with better captions,'' OpenAI Tech. Rep., 2023.
+\bibitem{karras2019} T.~Karras, S.~Laine, and T.~Aila, ``A style-based generator architecture for generative adversarial networks,'' in \textit{Proc. IEEE/CVF CVPR}, 2019, pp. 4401--4410.
+\bibitem{wang2020} S.-Y.~Wang, O.~Wang, R.~Zhang, A.~Owens, and A.~A.~Efros, ``CNN-generated images are surprisingly easy to spot... for now,'' in \textit{Proc. IEEE/CVF CVPR}, 2020, pp. 8695--8704.
+\bibitem{ojha2023} U.~Ojha, Y.~Li, and Y.~J.~Lee, ``Towards universal fake image detectors that generalize across generative models,'' in \textit{Proc. IEEE/CVF CVPR}, 2023, pp. 24480--24489.
+\bibitem{zhu2023genimage} M.~Zhu \textit{et al.}, ``GenImage: A million-scale benchmark for detecting AI-generated image,'' in \textit{Proc. NeurIPS Datasets and Benchmarks}, 2023.
+\bibitem{tan2024npr} C.~Tan, Y.~Zhao, S.~Wei, G.~Gu, P.~Liu, and Y.~Wei, ``Rethinking the up-sampling operations in CNN-based generative network for generalizable deepfake detection,'' in \textit{Proc. IEEE/CVF CVPR}, 2024, pp. 28130--28139.
+\bibitem{corvi2023} R.~Corvi, D.~Cozzolino, G.~Zingarini, G.~Poggi, K.~Nagano, and L.~Verdoliva, ``On the detection of synthetic images generated by diffusion models,'' in \textit{Proc. IEEE ICASSP}, 2023.
+\bibitem{yan2025sanity} S.~Yan, O.~Li, J.~Cai, Y.~Hao, X.~Jiang, Y.~Hu, and W.~Xie, ``A sanity check for AI-generated image detection,'' in \textit{Proc. ICLR}, 2025.
+\bibitem{zhang2019wifs} X.~Zhang, S.~Karaman, and S.-F.~Chang, ``Detecting and simulating artifacts in GAN fake images,'' in \textit{Proc. IEEE WIFS}, 2019.
+\bibitem{durall2020} R.~Durall, M.~Keuper, and J.~Keuper, ``Watch your up-convolution: CNN based generative deep neural networks are failing to reproduce spectral distributions,'' in \textit{Proc. IEEE/CVF CVPR}, 2020, pp. 7890--7899.
+\bibitem{frank2020} J.~Frank, T.~Eisenhofer, L.~Sch\"onherr, A.~Fischer, D.~Kolossa, and T.~Holz, ``Leveraging frequency analysis for deep fake image recognition,'' in \textit{Proc. ICML}, 2020, pp. 3247--3258.
+\bibitem{cozzolino2019} D.~Cozzolino and L.~Verdoliva, ``Noiseprint: A CNN-based camera model fingerprint,'' \textit{IEEE Trans. Inf. Forensics Security}, vol.~15, pp. 144--159, 2019.
+\bibitem{ricker2024} J.~Ricker, S.~Damm, T.~Holz, and A.~Fischer, ``Towards the detection of diffusion model deepfakes,'' in \textit{Proc. VISAPP}, 2024.
+\bibitem{tan2024freqnet} C.~Tan, Y.~Zhao, S.~Wei, G.~Gu, P.~Liu, and Y.~Wei, ``Frequency-aware deepfake detection: Improving generalizability through frequency space domain learning,'' in \textit{Proc. AAAI}, 2024, pp. 5052--5060.
+\bibitem{wang2023dire} Z.~Wang, J.~Bao, W.~Zhou, W.~Wang, H.~Hu, H.~Chen, and H.~Li, ``DIRE for diffusion-generated image detection,'' in \textit{Proc. IEEE/CVF ICCV}, 2023, pp. 22445--22455.
+\bibitem{chen2024drct} B.~Chen, J.~Zeng, J.~Yang, and R.~Yang, ``DRCT: Diffusion reconstruction contrastive training towards universal detection of diffusion generated images,'' in \textit{Proc. ICML}, 2024.
+\bibitem{goodfellow2014} I.~Goodfellow \textit{et al.}, ``Generative adversarial nets,'' in \textit{Proc. NeurIPS}, 2014.
+\bibitem{ho2020} J.~Ho, A.~Jain, and P.~Abbeel, ``Denoising diffusion probabilistic models,'' in \textit{Proc. NeurIPS}, 2020.
+\bibitem{chollet2017} F.~Chollet, ``Xception: Deep learning with depthwise separable convolutions,'' in \textit{Proc. IEEE/CVF CVPR}, 2017, pp. 1251--1258.
+\bibitem{dosovitskiy2021} A.~Dosovitskiy \textit{et al.}, ``An image is worth 16x16 words: Transformers for image recognition at scale,'' in \textit{Proc. ICLR}, 2021.
+\bibitem{touvron2021} H.~Touvron, M.~Cord, M.~Douze, F.~Massa, A.~Sablayrolles, and H.~J\'egou, ``Training data-efficient image transformers \& distillation through attention,'' in \textit{Proc. ICML}, 2021, pp. 10347--10357.
+\bibitem{liu2021} Z.~Liu \textit{et al.}, ``Swin transformer: Hierarchical vision transformer using shifted windows,'' in \textit{Proc. IEEE/CVF ICCV}, 2021, pp. 10012--10022.
+\bibitem{radford2021} A.~Radford \textit{et al.}, ``Learning transferable visual models from natural language supervision,'' in \textit{Proc. ICML}, 2021, pp. 8748--8763.
+\bibitem{miao2023hierarchical} C.~Miao, Z.~Tan, Q.~Chu, H.~Liu, H.~Hu, and N.~Yu, ``F$^2$Trans: High-frequency fine-grained transformer for face forgery detection,'' \textit{IEEE Trans. Inf. Forensics Security}, vol.~18, pp. 1039--1051, 2023.
+\bibitem{rossler2019} A.~R\"ossler, D.~Cozzolino, L.~Verdoliva, C.~Riess, J.~Thies, and M.~Nie{\ss}ner, ``FaceForensics++: Learning to detect manipulated facial images,'' in \textit{Proc. IEEE/CVF ICCV}, 2019, pp. 1--11.
+\bibitem{li2020celebdf} Y.~Li, X.~Yang, P.~Sun, H.~Qi, and S.~Lyu, ``Celeb-DF: A large-scale challenging dataset for deepfake forensics,'' in \textit{Proc. IEEE/CVF CVPR}, 2020, pp. 3207--3216.
+\bibitem{dolhansky2020} B.~Dolhansky \textit{et al.}, ``The DeepFake Detection Challenge (DFDC) dataset,'' arXiv:2006.07397, 2020.
+\bibitem{he2016} K.~He, X.~Zhang, S.~Ren, and J.~Sun, ``Deep residual learning for image recognition,'' in \textit{Proc. IEEE/CVF CVPR}, 2016, pp. 770--778.
+\bibitem{tan2019} M.~Tan and Q.~Le, ``EfficientNet: Rethinking model scaling for convolutional neural networks,'' in \textit{Proc. ICML}, 2019, pp. 6105--6114.
+\bibitem{selvaraju2017} R.~R.~Selvaraju, M.~Cogswell, A.~Das, R.~Vedantam, D.~Parikh, and D.~Batra, ``Grad-CAM: Visual explanations from deep networks via gradient-based localization,'' in \textit{Proc. IEEE/CVF ICCV}, 2017, pp. 618--626.
+\bibitem{sundararajan2017} M.~Sundararajan, A.~Taly, and Q.~Yan, ``Axiomatic attribution for deep networks,'' in \textit{Proc. ICML}, 2017, pp. 3319--3328.
+
+\end{thebibliography}
+
+\appendices
+
+% ============================================================
+\section{Baseline Implementation Details}
+% ============================================================
+\label{app:baselines}
+\textbf{SimpleCNN} uses five Conv2d--BatchNorm--GELU stages (3$\rightarrow$32$\rightarrow$64$\rightarrow$128$\rightarrow$256 channels, stride 2 each), adaptive average pooling, and a two-layer head (256$\rightarrow$128 with dropout 0.2, 128$\rightarrow$2), totaling 422{,}530 parameters. It is the capacity-matched spatial control for MFFT-Tiny.
+
+\textbf{LightViT} is a compact vision transformer with patch embedding, learned positional embeddings, and standard pre-norm encoder blocks, trained from random initialization (2{,}038{,}850 parameters). Its collapse in the pilot (50.8\%) is the expected behavior of an unpretrained ViT on 4K training images and serves as the attention-without-inductive-bias control.
+
+\textbf{FreqDetect} re-implements the radial-spectrum approach of Frank \textit{et al.}~\cite{frank2020}: per channel, the 2D FFT magnitude spectrum is pooled into 16 radial bins normalized by bin population, yielding a 48-dimensional feature classified by a three-layer MLP (48$\rightarrow$128 ReLU + dropout, 128$\rightarrow$64 ReLU, 64$\rightarrow$2), totaling 14{,}658 parameters. It is the hand-crafted spectral control: its chance-level pilot performance demonstrates that aggregate spectral statistics---as opposed to learned, spatially resolved band representations---do not separate the mixed GAN/diffusion/deepfake class.
+
+\textbf{Pretrained baselines} (ResNet-18/50, EfficientNet-B0, Swin-T, ViT-B/16) load torchvision ImageNet-1K weights, replace the final classifier with a two-way head, and fine-tune end to end under the shared protocol of Table~\ref{tab:hyper}. The CLIP baseline freezes a LAION-pretrained ViT-B image encoder and trains only a linear head on its pooled features, following the UnivFD recipe~\cite{ojha2023}.
+
+% ============================================================
+\section{Variant Parameter Accounting}
+% ============================================================
+\label{app:params}
+Total parameters decompose as $B \times$ (band extractor) $+$ QKV/output projections $+$ FGA gate $+$ classification head. For MFFT-Tiny ($d{=}128$, $B{=}3$): $3 \times 80\mathrm{K} + 49\mathrm{K} + 17\mathrm{K} + 8\mathrm{K} + 58\mathrm{K} \approx 372\mathrm{K}$ (measured 372{,}450). For MFFT-Base ($d{=}384$, $B{=}3$): $3 \times 146\mathrm{K} + 442\mathrm{K} + 148\mathrm{K} + 74\mathrm{K} + 519\mathrm{K} \approx 1.62\mathrm{M}$ (measured 1{,}622{,}690). For MFFT-Large ($d{=}768$, $B{=}4$): $4 \times 245\mathrm{K} + 1.77\mathrm{M} + 591\mathrm{K} + 296\mathrm{K} + 2.66\mathrm{M} \approx 6.30\mathrm{M}$ (measured 6{,}301{,}250). The frequency decomposition module itself contributes zero trainable parameters at every scale; its band masks are fixed buffers. This accounting makes explicit where capacity grows across variants: the classification head and fusion projections dominate scaling (together $\approx$70\% of MFFT-Large), while the convolutional extractors grow modestly---a property that keeps inference cost growth sublinear in the parameter count, since inference is dominated by the extractors.
+
+% ============================================================
+\section{Reproducibility Checklist}
+% ============================================================
+\label{app:repro}
+All pilot artifacts are generated by a scripted pipeline and versioned alongside the code: per-model metric tables (evaluation metrics, confusion matrices, per-class and per-category breakdowns, calibration metrics, training histories) are emitted as CSV/JSON; all figures in this paper are produced directly from those artifacts without manual editing. The corpus manifest records an MD5 hash per image, enabling third-party verification of dataset integrity. Random seeds are fixed (seed 42) for split generation, dataloader shuffling, and weight initialization. The release will include: model and training source code, the pilot split indices, the corpus manifest, trained checkpoints for all thirteen pilot models, and the evaluation notebooks that regenerate every table and figure.
+
+\section*{Acknowledgment}
+The authors thank the Department of Computer Science at American International University-Bangladesh for supporting this research, and acknowledge the university DGX infrastructure allocated for the forthcoming full-scale training campaign. We thank the maintainers of PyTorch and torchvision, and the contributors of the GenImage, FaceForensics++, Celeb-DF, and DFDC datasets.
+
+\begin{IEEEbiography}{Mohsin Ibna Hossain}
+received the B.Sc. degree in Computer Science from American International University-Bangladesh (AIUB) in 2026. His research interests include deep learning, computer vision, AI-generated content detection, and frequency-domain analysis for image forensics. He is currently working on transformer-based architectures for multimedia authenticity verification.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{MD. Muttakin}
+received the B.Sc. degree in Computer Science from American International University-Bangladesh (AIUB) in 2026. His research interests include machine learning, image processing, and vision transformer architectures for forensic applications. He focuses on developing efficient deep learning models for real-world deployment scenarios.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Mohammad Mahmudul Hasan}
+(Member, IEEE) received the Ph.D. degree in Computer Science from Universiti Malaya, Malaysia. He is currently an Assistant Professor in the Department of Computer Science at American International University-Bangladesh (AIUB), Dhaka, Bangladesh. His research interests include deep learning, natural language processing, computer vision, and AI-generated content detection.
+\end{IEEEbiography}
+
+\end{document}
