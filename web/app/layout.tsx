@@ -32,7 +32,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       </head>
       <body
-        className={`${inter.className} min-h-screen bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100`}
+        className={`${inter.className} min-h-screen bg-cream-50 text-stone-900 antialiased dark:bg-slate-950 dark:text-slate-100`}
       >
         {children}
       </body>

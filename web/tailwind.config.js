@@ -8,6 +8,13 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // warm "vintage paper" neutrals for light mode
+        cream: {
+          50: "#FBF9F4",
+          100: "#F6F1E7",
+          200: "#EDE5D4",
+          300: "#E0D5BE",
+        },
         primary: {
           50: "#eff6ff",
           100: "#dbeafe",

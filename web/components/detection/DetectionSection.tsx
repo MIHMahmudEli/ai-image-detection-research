@@ -69,7 +69,7 @@ export default function DetectionSection() {
   };
 
   return (
-    <section id="detect" className="bg-white py-20 dark:bg-slate-950">
+    <section id="detect" className="bg-cream-50 py-20 dark:bg-slate-950">
       <div className="mx-auto max-w-4xl px-4">
         <p className="section-eyebrow">Live Demo</p>
         <h2 className="section-heading">Detect AI-Generated Images</h2>
