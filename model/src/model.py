@@ -210,7 +210,10 @@ class MFFT(nn.Module):
         spatial_only = self.ablation.get("spatial_only", False)
         skip_bands = self.ablation.get("skip_bands", [])
         fusion_mode = self.ablation.get("fusion_mode", "attention")
-        band_names = ["low", "mid", "high"]
+        if self.num_bands == 4:
+            band_names = ["low", "low_mid", "mid_high", "high"]
+        else:
+            band_names = ["low", "mid", "high"]
 
         if spatial_only:
             bands = [x]

@@ -1,0 +1,11 @@
+Configuration,Table,Params,Best Val Acc (%),Test Acc (%)
+Spatial-only (no bands),4,958274,83.4,81.8
+Low-frequency only,4,958274,72.2,62.6
+Mid-frequency only,4,958274,89.2,87.2
+High-frequency only,4,958274,89.6,88.8
+All bands (concat),4,958274,87.6,87.0
+All bands (avg),4,958274,90.6,89.8
+All bands (max),4,958274,91.4,90.6
+"All bands (cross-attn, no FGA)",4,1548482,90.0,90.0
+"2 bands (low, high)",5,1622690,88.6,88.4
+"4 bands (low, low-mid, mid-high, high)",5,6301250,87.0,85.0

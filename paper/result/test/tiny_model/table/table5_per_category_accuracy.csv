@@ -1,4 +1,4 @@
 Category,Count,Accuracy,Avg Confidence
-Real,250,92.00%,19.18%
-AI Generated,206,83.50%,80.59%
-AI Altered,44,100.00%,94.61%
+Real,250,69.60%,40.20%
+AI Generated,206,94.66%,79.06%
+AI Altered,44,88.64%,77.06%

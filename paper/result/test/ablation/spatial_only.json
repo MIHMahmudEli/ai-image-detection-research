@@ -1,0 +1,23 @@
+{
+  "name": "spatial_only",
+  "label": "Spatial-only (no bands)",
+  "table": 4,
+  "params": 958274,
+  "final_train_acc": 71.43,
+  "best_val_acc": 83.4,
+  "test_acc": 81.8,
+  "history": {
+    "train_loss": [
+      0.5959
+    ],
+    "val_loss": [
+      0.494
+    ],
+    "train_acc": [
+      71.425
+    ],
+    "val_acc": [
+      83.4
+    ]
+  }
+}

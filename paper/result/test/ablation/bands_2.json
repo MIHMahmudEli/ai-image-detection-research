@@ -1,0 +1,23 @@
+{
+  "name": "bands_2",
+  "label": "2 bands (low, high)",
+  "table": 5,
+  "params": 1622690,
+  "final_train_acc": 78.55,
+  "best_val_acc": 88.6,
+  "test_acc": 88.4,
+  "history": {
+    "train_loss": [
+      0.5346
+    ],
+    "val_loss": [
+      0.4748
+    ],
+    "train_acc": [
+      78.55
+    ],
+    "val_acc": [
+      88.6
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 Metric,Value
-Accuracy (%),89.00
-Precision (%),87.07
-Recall (%),91.60
-F1 Score (%),89.28
-AUC-ROC,0.9658
-ECE,0.1050
+Accuracy (%),88.60
+Precision (%),92.14
+Recall (%),84.40
+F1 Score (%),88.10
+AUC-ROC,0.9392
+ECE,0.0797

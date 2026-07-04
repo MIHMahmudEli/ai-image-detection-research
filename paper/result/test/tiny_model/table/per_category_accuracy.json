@@ -2,25 +2,25 @@
   "categories": {
     "Real": {
       "count": 250,
-      "accuracy": 92.0,
-      "avg_confidence": 19.18,
+      "accuracy": 69.6,
+      "avg_confidence": 40.2,
       "auc": NaN
     },
     "AI Generated": {
       "count": 206,
-      "accuracy": 83.5,
-      "avg_confidence": 80.59,
+      "accuracy": 94.66,
+      "avg_confidence": 79.06,
       "auc": NaN
     },
     "AI Altered": {
       "count": 44,
-      "accuracy": 100.0,
-      "avg_confidence": 94.61,
+      "accuracy": 88.64,
+      "avg_confidence": 77.06,
       "auc": NaN
     }
   },
   "overall": {
     "count": 500,
-    "accuracy": 89.2
+    "accuracy": 81.6
   }
 }

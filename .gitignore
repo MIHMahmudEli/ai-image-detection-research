@@ -15,6 +15,11 @@ env/
 model/checkpoints/*.pt
 model/checkpoints/*.pth
 
+# Large baseline checkpoints (>100MB — exceed GitHub limit)
+model/model/checkpoints/test/baselines_model/clip/
+model/model/checkpoints/test/baselines_model/vit_b_16/
+model/model/checkpoints/test/baselines_model/swin_t/
+
 # API keys
 .env
 **/.env

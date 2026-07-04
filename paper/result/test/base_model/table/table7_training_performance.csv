@@ -1,8 +1,8 @@
 Metric,Value
 Total Epochs,1
-Best Val Acc Pct,89.4
-Best Val Loss,0.3961
-Final Train Acc Pct,86.85
-Final Val Acc Pct,89.4
-Final Train Loss,0.4149
-Final Val Loss,0.3961
+Best Val Acc Pct,88.2
+Best Val Loss,0.3931
+Final Train Acc Pct,86.22
+Final Val Acc Pct,88.2
+Final Train Loss,0.4265
+Final Val Loss,0.3931

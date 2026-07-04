@@ -1,0 +1,11 @@
+{
+  "model": "ViT-B/16",
+  "params": 86092034,
+  "best_val_acc": 56.6,
+  "best_epoch": 1,
+  "test_accuracy": 54.8,
+  "test_precision": 81.58,
+  "test_recall": 12.4,
+  "test_f1": 21.53,
+  "test_auc": 0.6218
+}

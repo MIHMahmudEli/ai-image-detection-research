@@ -1,0 +1,23 @@
+{
+  "name": "no_fga",
+  "label": "All bands (cross-attn, no FGA)",
+  "table": 4,
+  "params": 1548482,
+  "final_train_acc": 79.83,
+  "best_val_acc": 90.0,
+  "test_acc": 90.0,
+  "history": {
+    "train_loss": [
+      0.5231
+    ],
+    "val_loss": [
+      0.3941
+    ],
+    "train_acc": [
+      79.825
+    ],
+    "val_acc": [
+      90.0
+    ]
+  }
+}

@@ -1,0 +1,232 @@
+[
+  {
+    "name": "spatial_only",
+    "label": "Spatial-only (no bands)",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 71.43,
+    "best_val_acc": 83.4,
+    "test_acc": 81.8,
+    "history": {
+      "train_loss": [
+        0.5959
+      ],
+      "val_loss": [
+        0.494
+      ],
+      "train_acc": [
+        71.425
+      ],
+      "val_acc": [
+        83.4
+      ]
+    }
+  },
+  {
+    "name": "band_low",
+    "label": "Low-frequency only",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 62.65,
+    "best_val_acc": 72.2,
+    "test_acc": 62.6,
+    "history": {
+      "train_loss": [
+        0.6582
+      ],
+      "val_loss": [
+        0.597
+      ],
+      "train_acc": [
+        62.65
+      ],
+      "val_acc": [
+        72.2
+      ]
+    }
+  },
+  {
+    "name": "band_mid",
+    "label": "Mid-frequency only",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 79.85,
+    "best_val_acc": 89.2,
+    "test_acc": 87.2,
+    "history": {
+      "train_loss": [
+        0.524
+      ],
+      "val_loss": [
+        0.4017
+      ],
+      "train_acc": [
+        79.85
+      ],
+      "val_acc": [
+        89.2
+      ]
+    }
+  },
+  {
+    "name": "band_high",
+    "label": "High-frequency only",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 79.88,
+    "best_val_acc": 89.6,
+    "test_acc": 88.8,
+    "history": {
+      "train_loss": [
+        0.5163
+      ],
+      "val_loss": [
+        0.3828
+      ],
+      "train_acc": [
+        79.875
+      ],
+      "val_acc": [
+        89.6
+      ]
+    }
+  },
+  {
+    "name": "fusion_concat",
+    "label": "All bands (concat)",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 80.8,
+    "best_val_acc": 87.6,
+    "test_acc": 87.0,
+    "history": {
+      "train_loss": [
+        0.5003
+      ],
+      "val_loss": [
+        0.4161
+      ],
+      "train_acc": [
+        80.8
+      ],
+      "val_acc": [
+        87.6
+      ]
+    }
+  },
+  {
+    "name": "fusion_avg",
+    "label": "All bands (avg)",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 80.8,
+    "best_val_acc": 90.6,
+    "test_acc": 89.8,
+    "history": {
+      "train_loss": [
+        0.5089
+      ],
+      "val_loss": [
+        0.3875
+      ],
+      "train_acc": [
+        80.8
+      ],
+      "val_acc": [
+        90.6
+      ]
+    }
+  },
+  {
+    "name": "fusion_max",
+    "label": "All bands (max)",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 79.1,
+    "best_val_acc": 91.4,
+    "test_acc": 90.6,
+    "history": {
+      "train_loss": [
+        0.5094
+      ],
+      "val_loss": [
+        0.3448
+      ],
+      "train_acc": [
+        79.1
+      ],
+      "val_acc": [
+        91.4
+      ]
+    }
+  },
+  {
+    "name": "no_fga",
+    "label": "All bands (cross-attn, no FGA)",
+    "table": 4,
+    "params": 1548482,
+    "final_train_acc": 79.83,
+    "best_val_acc": 90.0,
+    "test_acc": 90.0,
+    "history": {
+      "train_loss": [
+        0.5231
+      ],
+      "val_loss": [
+        0.3941
+      ],
+      "train_acc": [
+        79.825
+      ],
+      "val_acc": [
+        90.0
+      ]
+    }
+  },
+  {
+    "name": "bands_2",
+    "label": "2 bands (low, high)",
+    "table": 5,
+    "params": 1622690,
+    "final_train_acc": 78.55,
+    "best_val_acc": 88.6,
+    "test_acc": 88.4,
+    "history": {
+      "train_loss": [
+        0.5346
+      ],
+      "val_loss": [
+        0.4748
+      ],
+      "train_acc": [
+        78.55
+      ],
+      "val_acc": [
+        88.6
+      ]
+    }
+  },
+  {
+    "name": "bands_4",
+    "label": "4 bands (low, low-mid, mid-high, high)",
+    "table": 5,
+    "params": 6301250,
+    "final_train_acc": 80.53,
+    "best_val_acc": 87.0,
+    "test_acc": 85.0,
+    "history": {
+      "train_loss": [
+        0.5028
+      ],
+      "val_loss": [
+        0.3999
+      ],
+      "train_acc": [
+        80.525
+      ],
+      "val_acc": [
+        87.0
+      ]
+    }
+  }
+]

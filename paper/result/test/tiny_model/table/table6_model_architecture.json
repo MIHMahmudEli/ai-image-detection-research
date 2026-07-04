@@ -1,7 +1,7 @@
 {
   "architecture": "Multi-Frequency Fusion Transformer (MFFT)",
   "variant": "base",
-  "total_params": 866498,
+  "total_params": 372450,
   "image_size": "224x224",
-  "checkpoint_size_mb": 3.51
+  "checkpoint_size_mb": 1.53
 }

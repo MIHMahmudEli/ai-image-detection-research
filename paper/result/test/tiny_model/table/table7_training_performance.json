@@ -1,9 +1,9 @@
 {
   "total_epochs": 1,
-  "best_val_acc_pct": 87.8,
-  "best_val_loss": 0.4021,
-  "final_train_acc_pct": 84.75,
-  "final_val_acc_pct": 87.8,
-  "final_train_loss": 0.447,
-  "final_val_loss": 0.4021
+  "best_val_acc_pct": 81.2,
+  "best_val_loss": 0.4785,
+  "final_train_acc_pct": 86.48,
+  "final_val_acc_pct": 81.2,
+  "final_train_loss": 0.419,
+  "final_val_loss": 0.4785
 }

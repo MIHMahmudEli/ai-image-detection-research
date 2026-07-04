@@ -1,3 +1,3 @@
 Class,Precision (%),Recall (%),F1 Score (%),Support
-Real,87.12,92.0,89.49,250
-AI-Generated,91.53,86.4,88.89,250
+Real,91.58,69.6,79.09,250
+AI-Generated,75.48,93.6,83.57,250

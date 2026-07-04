@@ -1,0 +1,23 @@
+{
+  "name": "bands_4",
+  "label": "4 bands (low, low-mid, mid-high, high)",
+  "table": 5,
+  "params": 6301250,
+  "final_train_acc": 80.53,
+  "best_val_acc": 87.0,
+  "test_acc": 85.0,
+  "history": {
+    "train_loss": [
+      0.5028
+    ],
+    "val_loss": [
+      0.3999
+    ],
+    "train_acc": [
+      80.525
+    ],
+    "val_acc": [
+      87.0
+    ]
+  }
+}

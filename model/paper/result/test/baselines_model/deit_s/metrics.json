@@ -1,0 +1,11 @@
+{
+  "model": "DeiT-S",
+  "params": 21813892,
+  "best_val_acc": 53.2,
+  "best_epoch": 1,
+  "test_accuracy": 52.6,
+  "test_precision": 51.52,
+  "test_recall": 88.0,
+  "test_f1": 64.99,
+  "test_auc": 0.6274
+}
