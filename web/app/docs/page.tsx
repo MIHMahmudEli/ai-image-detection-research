@@ -1,6 +1,7 @@
 "use client";
 
-import { Shield, Code2, Key, CreditCard } from "lucide-react";
+import { Shield, Code2, Key, CreditCard, ArrowLeft } from "lucide-react";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const endpoints = [
   {
@@ -11,7 +12,7 @@ const endpoints = [
   "status": "healthy",
   "model_loaded": true,
   "version": "2.0.0",
-  "timestamp": "2026-06-20T..." 
+  "timestamp": "2026-06-20T..."
 }`,
   },
   {
@@ -63,27 +64,41 @@ const endpoints = [
 
 export default function DocsPage() {
   return (
-    <div className="min-h-screen bg-white">
-      <header className="border-b">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-2">
-          <Shield className="w-6 h-6 text-blue-600" />
-          <span className="text-lg font-bold">
-            Image<span className="text-blue-600">Verify</span> AI
+    <div className="min-h-screen bg-white dark:bg-slate-950">
+      <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-950/80">
+        <div className="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4">
+          <a
+            href="/"
+            className="flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Home
+          </a>
+          <span className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600">
+            <Shield className="h-4 w-4 text-white" />
+          </div>
+          <span className="text-lg font-bold text-slate-900 dark:text-white">
+            Image<span className="text-blue-600 dark:text-blue-400">Verify</span>{" "}
+            AI
           </span>
-          <span className="text-sm text-gray-500 ml-auto">
+          <span className="ml-auto text-sm text-slate-500 dark:text-slate-400">
             API Documentation
           </span>
+          <ThemeToggle />
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-12">
-        <h1 className="text-4xl font-bold mb-4">API Reference</h1>
-        <p className="text-gray-500 mb-8 max-w-2xl">
+      <div className="mx-auto max-w-5xl px-4 py-12">
+        <h1 className="mb-4 text-4xl font-bold text-slate-900 dark:text-white">
+          API Reference
+        </h1>
+        <p className="mb-8 max-w-2xl text-slate-500 dark:text-slate-400">
           Our REST API lets you integrate AI image detection into your own
           applications, platforms, and workflows.
         </p>
 
-        <div className="grid md:grid-cols-3 gap-6 mb-12">
+        <div className="mb-12 grid gap-6 md:grid-cols-3">
           {[
             {
               icon: Key,
@@ -101,44 +116,58 @@ export default function DocsPage() {
               desc: "Python and JavaScript SDKs in development.",
             },
           ].map((item) => (
-            <div key={item.title} className="border rounded-xl p-5">
-              <item.icon className="w-6 h-6 text-blue-600 mb-3" />
-              <h3 className="font-semibold mb-1">{item.title}</h3>
-              <p className="text-sm text-gray-500">{item.desc}</p>
+            <div
+              key={item.title}
+              className="rounded-xl border border-slate-200 p-5 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:border-blue-700"
+            >
+              <item.icon className="mb-3 h-6 w-6 text-blue-600 dark:text-blue-400" />
+              <h3 className="mb-1 font-semibold text-slate-900 dark:text-white">
+                {item.title}
+              </h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {item.desc}
+              </p>
             </div>
           ))}
         </div>
 
         <div className="space-y-8">
           {endpoints.map((ep) => (
-            <div key={ep.path} className="border rounded-xl overflow-hidden">
-              <div className="p-5 border-b bg-gray-50 flex items-center gap-3">
+            <div
+              key={ep.path}
+              className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-900">
                 <span
-                  className={`text-xs font-bold px-2 py-1 rounded ${
+                  className={`rounded px-2 py-1 text-xs font-bold ${
                     ep.method === "GET"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-blue-100 text-blue-700"
+                      ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400"
+                      : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400"
                   }`}
                 >
                   {ep.method}
                 </span>
-                <code className="text-sm font-mono">{ep.path}</code>
+                <code className="font-mono text-sm text-slate-900 dark:text-slate-100">
+                  {ep.path}
+                </code>
               </div>
-              <div className="p-5 space-y-4">
-                <p className="text-sm text-gray-600">{ep.desc}</p>
+              <div className="space-y-4 p-5 dark:bg-slate-950">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  {ep.desc}
+                </p>
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">
+                  <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
                     Example Request
                   </p>
-                  <pre className="bg-gray-900 text-gray-100 text-sm p-4 rounded-lg overflow-x-auto">
+                  <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100 dark:border dark:border-slate-800">
                     <code>{ep.request || "N/A"}</code>
                   </pre>
                 </div>
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">
+                  <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
                     Example Response
                   </p>
-                  <pre className="bg-gray-900 text-gray-100 text-sm p-4 rounded-lg overflow-x-auto">
+                  <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100 dark:border dark:border-slate-800">
                     <code>{ep.response}</code>
                   </pre>
                 </div>
@@ -147,12 +176,14 @@ export default function DocsPage() {
           ))}
         </div>
 
-        <div className="mt-12 p-6 bg-blue-50 border border-blue-100 rounded-xl">
-          <h2 className="font-semibold text-lg mb-2">Get Your API Key</h2>
-          <p className="text-sm text-gray-600 mb-4">
+        <div className="mt-12 rounded-xl border border-blue-100 bg-blue-50 p-6 dark:border-blue-900/50 dark:bg-blue-950/40">
+          <h2 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+            Get Your API Key
+          </h2>
+          <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
             Sign up for a free account to receive your API key instantly.
           </p>
-          <button className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors">
+          <button className="btn-primary px-5 py-2 text-sm">
             Get Free API Key
           </button>
         </div>

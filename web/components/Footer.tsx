@@ -3,12 +3,12 @@ import { LINKS } from "@/lib/content";
 
 export default function Footer() {
   return (
-    <footer className="mt-auto bg-slate-950 py-14 text-slate-400">
+    <footer className="mt-auto border-t border-transparent bg-slate-950 py-14 text-slate-400 dark:border-slate-800">
       <div className="mx-auto max-w-6xl px-4">
         <div className="grid gap-10 md:grid-cols-3">
           <div>
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600/30 to-indigo-600/30">
                 <Shield className="h-4 w-4 text-blue-400" />
               </div>
               <span className="font-semibold text-white">ImageVerify AI</span>

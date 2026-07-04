@@ -19,17 +19,54 @@
     --card-foreground: 220 40% 10%;
   }
 
+  .dark {
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 25% 12%;
+    --secondary-foreground: 220 20% 90%;
+    --accent: 160 60% 45%;
+    --accent-foreground: 0 0% 100%;
+    --muted: 222 20% 16%;
+    --muted-foreground: 220 10% 65%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 20% 20%;
+    --card: 222 30% 8%;
+    --card-foreground: 220 20% 95%;
+  }
+
   * {
-    @apply border-gray-200;
+    @apply border-slate-200 dark:border-slate-800;
   }
 
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-white text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  ::selection {
+    @apply bg-blue-500/25;
   }
 }
 
 @layer components {
   .gradient-heading {
     @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-teal-500;
+  }
+
+  /* eyebrow label above section headings */
+  .section-eyebrow {
+    @apply text-center text-xs font-semibold uppercase tracking-widest text-blue-600 dark:text-blue-400;
+  }
+
+  .section-heading {
+    @apply mt-2 text-center text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-4xl;
+  }
+
+  .section-sub {
+    @apply mx-auto mt-3 max-w-lg text-center text-slate-500 dark:text-slate-400;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 font-semibold text-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-glow-sm active:translate-y-0;
   }
 }

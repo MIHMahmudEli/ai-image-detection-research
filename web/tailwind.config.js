@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  darkMode: "class",
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
@@ -20,9 +21,15 @@ module.exports = {
           900: "#1e3a8a",
         },
       },
+      boxShadow: {
+        "glow-sm": "0 0 20px -5px rgba(59, 130, 246, 0.35)",
+        glow: "0 0 40px -10px rgba(59, 130, 246, 0.45)",
+      },
       animation: {
         "fade-in": "fadeIn 0.5s ease-out",
         "slide-up": "slideUp 0.5s ease-out",
+        shimmer: "shimmer 8s ease-in-out infinite",
+        float: "float 6s ease-in-out infinite",
       },
       keyframes: {
         fadeIn: {
@@ -32,6 +39,14 @@ module.exports = {
         slideUp: {
           "0%": { opacity: "0", transform: "translateY(20px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        shimmer: {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-8px)" },
         },
       },
     },

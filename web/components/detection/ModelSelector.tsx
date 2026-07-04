@@ -33,12 +33,12 @@ export default function ModelSelector({ models, modelId, onSelect }: Props) {
         onClick={() => setOpen((s) => !s)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-blue-400 hover:bg-blue-50/50"
+        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-500 dark:hover:bg-blue-950/40"
       >
         <Settings className="h-4 w-4 text-slate-400" />
         <span>
           Model:{" "}
-          <span className="font-semibold capitalize text-slate-900">
+          <span className="font-semibold capitalize text-slate-900 dark:text-white">
             MFFT-{modelId}
           </span>
         </span>
@@ -48,9 +48,9 @@ export default function ModelSelector({ models, modelId, onSelect }: Props) {
       {open && (
         <div
           role="listbox"
-          className="absolute left-1/2 z-30 mt-2 w-80 -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"
+          className="absolute left-1/2 z-30 mt-2 w-80 -translate-x-1/2 animate-fade-in rounded-2xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:shadow-glow-sm"
         >
-          <p className="px-3 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
+          <p className="px-3 pb-1.5 pt-2 text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
             Detection Model
           </p>
           {models.map((m) => {
@@ -66,26 +66,30 @@ export default function ModelSelector({ models, modelId, onSelect }: Props) {
                   setOpen(false);
                 }}
                 className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${
-                  active ? "bg-blue-50" : "hover:bg-slate-50"
+                  active
+                    ? "bg-blue-50 dark:bg-blue-950/50"
+                    : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
                 } ${!m.loaded ? "cursor-not-allowed opacity-40" : ""}`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 text-sm font-semibold capitalize text-slate-900">
+                  <span className="flex items-center gap-2 text-sm font-semibold capitalize text-slate-900 dark:text-white">
                     MFFT-{m.id}
-                    {active && <Check className="h-4 w-4 text-blue-600" />}
+                    {active && (
+                      <Check className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    )}
                   </span>
                   <span className="text-xs font-medium text-slate-400">
                     {m.params} params
                   </span>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   {m.description}
                   {!m.loaded && " · unavailable"}
                 </p>
               </button>
             );
           })}
-          <p className="border-t border-slate-100 px-3 pb-1.5 pt-2 text-[11px] leading-relaxed text-slate-400">
+          <p className="border-t border-slate-100 px-3 pb-1.5 pt-2 text-[11px] leading-relaxed text-slate-400 dark:border-slate-800 dark:text-slate-500">
             Demo checkpoints (pilot training). Full-scale weights arrive after
             the training campaign.
           </p>

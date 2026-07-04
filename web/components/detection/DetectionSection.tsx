@@ -69,15 +69,11 @@ export default function DetectionSection() {
   };
 
   return (
-    <section id="detect" className="bg-white py-20">
+    <section id="detect" className="bg-white py-20 dark:bg-slate-950">
       <div className="mx-auto max-w-4xl px-4">
-        <p className="text-center text-xs font-semibold uppercase tracking-widest text-blue-600">
-          Live Demo
-        </p>
-        <h2 className="mt-2 text-center text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">
-          Detect AI-Generated Images
-        </h2>
-        <p className="mx-auto mt-3 max-w-xl text-center text-slate-500">
+        <p className="section-eyebrow">Live Demo</p>
+        <h2 className="section-heading">Detect AI-Generated Images</h2>
+        <p className="section-sub max-w-xl">
           Upload an image and get an explainable verdict in under a second
         </p>
 
@@ -97,7 +93,7 @@ export default function DetectionSection() {
               <button
                 onClick={handleDetect}
                 disabled={loading}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3.5 font-semibold text-white shadow-sm transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="btn-primary mt-4 w-full py-3.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
               >
                 {loading ? (
                   <>
@@ -114,7 +110,7 @@ export default function DetectionSection() {
             )}
 
             {error && (
-              <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
                 <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                 {error}
               </div>
