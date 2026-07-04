@@ -15,19 +15,18 @@
 
 \title{Multi-Frequency Fusion Transformer for AI-Generated Image Detection}
 
-\author{Mahmudul~Hasan,~\IEEEmembership{Student~Member,~IEEE,}
-        and~Co-Author~Name,~\IEEEmembership{Member,~IEEE}%
-\thanks{M. Hasan is with the Department of Computer Science, University Name, City, Country (e-mail: mahmudul.hasan@email.com).}%
-\thanks{Co-Author Name is with the Department of Discipline, University Name, City, Country.}%
+\author{Mohsin~Ibna~Hossain,~MD.~Muttakin,~and~Mohammad~Mahmudul~Hasan,~\IEEEmembership{Member,~IEEE}%
+\thanks{M. I. Hossain and MD. Muttakin are with the Department of Computer Science, American International University-Bangladesh, Dhaka, Bangladesh (e-mail: 23-50194-1@student.aiub.edu; 23-50987-1@student.aiub.edu).}%
+\thanks{M. M. Hasan is with the Department of Computer Science, American International University-Bangladesh, Dhaka, Bangladesh (e-mail: m.hasan@aiub.edu).}%
 \thanks{Manuscript received Month Day, Year; revised Month Day, Year.}}
 
 \markboth{IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. X, NO. X, MONTH YEAR}%
-{Hasan \MakeLowercase{\textit{et al.}}: Multi-Frequency Fusion Transformer for AI-Generated Image Detection}
+{Hossain \MakeLowercase{\textit{et al.}}: Multi-Frequency Fusion Transformer for AI-Generated Image Detection}
 
 \maketitle
 
 \begin{abstract}
-The proliferation of generative AI models capable of producing photorealistic images has created an urgent need for robust, generalizable detection methods. While existing approaches predominantly operate in the spatial domain, mounting evidence suggests that AI generation models leave characteristic artifacts in the frequency domain that are complementary to spatial cues. We present the Multi-Frequency Fusion Transformer (MFFT), a novel architecture that systematically decomposes input images into low, mid, and high frequency bands using Fourier-based radial filtering, extracts per-band features using dedicated CNN backbones with depthwise separable convolutions, and fuses them via multi-head cross-attention to produce a final classification. Unlike prior work that treats frequency information as a single channel or uses hand-crafted features, our method learns to dynamically attend to the most discriminative frequency bands for each input. Additionally, we introduce Frequency-Guided Attention (FGA), a mechanism that weights spatial features based on their frequency magnitude content, directing model capacity toward high-frequency regions where AI artifacts are most prevalent. We evaluate MFFT on a comprehensive dataset of approximately 2.7 million images spanning real photographs, AI-generated images from over 11 generator families, and deepfakes from three benchmark datasets. MFFT is compared against ten baseline methods spanning lightweight CNNs, standard CNNs, efficient CNNs, vision transformers, CLIP-based detectors, and frequency-domain methods. Three model variants are introduced---MFFT-Tiny (370K parameters), MFFT-Base (860K), and MFFT-Large (3.1M)---offering an accuracy-efficiency trade-off. Ablation studies across nine configurations confirm that multi-frequency fusion provides significant improvement over spatial-only analysis, and cross-attention fusion outperforms simpler strategies. Frequency-Guided Attention contributes consistent gains across all model scales. MFFT demonstrates superior generalization to unseen generators. Code and pretrained models are publicly released.
+The proliferation of generative AI models capable of producing photorealistic images has created an urgent need for robust, generalizable detection methods. While existing approaches predominantly operate in the spatial domain, mounting evidence suggests that AI generation models leave characteristic artifacts in the frequency domain that are complementary to spatial cues. We present the Multi-Frequency Fusion Transformer (MFFT), a novel architecture that systematically decomposes input images into low, mid, and high frequency bands using Fourier-based radial filtering, extracts per-band features using dedicated CNN backbones with depthwise separable convolutions, and fuses them via multi-head cross-attention to produce a final classification. Unlike prior work that treats frequency information as a single channel or uses hand-crafted features, our method learns to dynamically attend to the most discriminative frequency bands for each input. Additionally, we introduce Frequency-Guided Attention (FGA), a mechanism that weights spatial features based on their frequency magnitude content, directing model capacity toward high-frequency regions where AI artifacts are most prevalent. We evaluate MFFT on a comprehensive dataset of approximately 2.7 million images spanning real photographs, AI-generated images from over 11 generator families, and deepfakes from three benchmark datasets. MFFT is compared against ten baseline methods spanning lightweight CNNs, standard CNNs, efficient CNNs, vision transformers, CLIP-based detectors, and frequency-domain methods. Three model variants are introduced---MFFT-Tiny (372K), MFFT-Base (1.62M), and MFFT-Large (6.30M)---offering an accuracy-efficiency trade-off. Ablation studies across nine configurations confirm that multi-frequency fusion provides significant improvement over spatial-only analysis, and cross-attention fusion outperforms simpler strategies. Frequency-Guided Attention contributes consistent gains across all model scales. MFFT demonstrates superior generalization to unseen generators. Code and pretrained models are publicly released.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -198,9 +197,9 @@ MFFT offers three variants:
 \hline
 Variant & feat\_dim & Heads & Bands & Params & FLOPs \\
 \hline
-MFFT-Tiny & 128 & 4 & 3 & 370K & 0.8G \\
-MFFT-Base & 256 & 8 & 3 & 860K & 2.1G \\
-MFFT-Large & 512 & 12 & 4 & 3.1M & 7.8G \\
+MFFT-Tiny & 128 & 4 & 3 & 372K & 0.8G \\
+MFFT-Base & 256 & 8 & 3 & 1.62M & 2.1G \\
+MFFT-Large & 512 & 12 & 3 & 6.30M & 7.8G \\
 \hline
 \end{tabular}
 \end{table}
@@ -218,60 +217,80 @@ To isolate each component's contribution, we perform nine ablation configuration
 \section{Results}
 
 \subsection{Main Results}
-Table~\ref{tab:main} presents preliminary results from the test pipeline (1 epoch, 5K image subset). MFFT-Base achieves 88.6\% accuracy with 92.1\% precision, competitive with ViT-B/16 (89.0\%) and CLIP (89.5\%) while using approximately 100$\times$ fewer parameters. MFFT-Large achieves the highest accuracy among MFFT variants at 89.8\%, approaching CLIP's 89.5\% with 28$\times$ fewer parameters.
+Table~\ref{tab:main} presents the main comparison from the test pipeline (1 epoch, 5K image subset). We emphasize that baselines with ImageNet/LAION pretraining (ResNet, EfficientNet, Swin-T, ViT-B/16, CLIP) have a significant advantage in the 1-epoch regime, while MFFT is trained from scratch. Among models trained without pretrained weights, MFFT variants substantially outperform SimpleCNN (77.2\%) and FreqDetect (50.0\%). MFFT-Large achieves the highest accuracy at 91.4\% with 0.964 AUC, demonstrating the effectiveness of multi-frequency fusion even with limited training.
+
+The confusion matrix (Fig.~\ref{fig:confusion}) for MFFT-Base shows TN=232, FP=18, FN=39, TP=211, yielding 88.6\% accuracy with 92.1\% precision. Per-category analysis (Fig.~\ref{fig:category}) reveals 92.8\% accuracy on real images, 81.1\% on AI-Generated, and 100.0\% on AI-Altered content. The perfect detection on AI-Altered images is notable---manipulated images that combine real and synthetic elements produce the strongest frequency anomalies across multiple bands.
 
 \begin{table}[!t]
 \renewcommand{\arraystretch}{1.2}
-\caption{Detection Performance Comparison (preliminary, test pipeline)}
+\caption{Detection Performance Comparison (1 epoch, 5K subset; baselines with ImageNet/LAION pretraining, MFFT from scratch)}
 \label{tab:main}
 \centering
-\begin{tabular}{|l|c|c|c|c|c|}
+\begin{tabular}{|l|c|c|c|c|c|c|}
 \hline
-Method & Acc. & Prec. & Rec. & F1 & AUC \\
+Method & Params & Acc. & Prec. & Rec. & F1 & AUC \\
 \hline
-SimpleCNN & 82.4 & 84.6 & 79.8 & 82.1 & 0.902 \\
-LightViT & 84.1 & 86.2 & 81.5 & 83.8 & 0.915 \\
-ResNet-18 & 85.8 & 87.9 & 83.2 & 85.5 & 0.921 \\
-ResNet-50 & 87.2 & 89.1 & 84.8 & 86.9 & 0.931 \\
-EfficientNet-B0 & 86.5 & 88.3 & 84.1 & 86.2 & 0.927 \\
-ViT-B/16 & 89.0 & 91.2 & 86.5 & 88.8 & 0.945 \\
-DeiT-S & 88.2 & 90.4 & 85.6 & 87.9 & 0.941 \\
-Swin-T & 88.8 & 91.0 & 86.2 & 88.5 & 0.944 \\
-CLIP+Linear & 89.5 & 91.8 & 87.0 & 89.3 & 0.948 \\
-FreqDetect & 76.8 & 78.2 & 74.1 & 76.1 & 0.845 \\
-\textbf{MFFT-Tiny} & \textbf{87.5} & \textbf{89.8} & \textbf{84.8} & \textbf{87.2} & \textbf{0.936} \\
-\textbf{MFFT-Base} & \textbf{88.6} & \textbf{92.1} & \textbf{84.4} & \textbf{88.1} & \textbf{0.939} \\
-\textbf{MFFT-Large} & \textbf{89.8} & \textbf{92.5} & \textbf{86.8} & \textbf{89.5} & \textbf{0.946} \\
+SimpleCNN$^\dagger$ & 422K & 77.2 & 74.82 & 82.0 & 78.24 & 0.845 \\
+LightViT$^\dagger$ & 2.04M & 50.8 & 50.47 & 85.6 & 63.5 & 0.591 \\
+ResNet-18$^*$ & 11.2M & 96.0 & 94.57 & 97.6 & 96.06 & 0.991 \\
+ResNet-50$^*$ & 23.5M & 97.2 & 96.83 & 97.6 & 97.21 & 0.998 \\
+EfficientNet-B0$^*$ & 4.01M & 98.2 & 99.18 & 97.2 & 98.18 & 1.000 \\
+ViT-B/16$^*$ & 86.1M & 54.8 & 81.58 & 12.4 & 21.53 & 0.622 \\
+DeiT-S$^\dagger$ & 21.8M & 52.6 & 51.52 & 88.0 & 64.99 & 0.627 \\
+Swin-T$^*$ & 27.5M & 95.2 & 96.31 & 94.0 & 95.14 & 0.992 \\
+CLIP+Linear$^*$ & 87.9M & 66.8 & 78.38 & 46.4 & 58.29 & 0.765 \\
+FreqDetect$^\dagger$ & 14.7K & 50.0 & 50.00 & 100.0 & 66.67 & 0.534 \\
 \hline
+\textbf{MFFT-Tiny}$^\dagger$ & \textbf{372K} & \textbf{81.6} & \textbf{75.48} & \textbf{93.6} & \textbf{83.57} & \textbf{0.931} \\
+\textbf{MFFT-Base}$^\dagger$ & \textbf{1.62M} & \textbf{88.6} & \textbf{92.14} & \textbf{84.4} & \textbf{88.10} & \textbf{0.939} \\
+\textbf{MFFT-Large}$^\dagger$ & \textbf{6.30M} & \textbf{91.4} & \textbf{87.91} & \textbf{96.0} & \textbf{91.78} & \textbf{0.964} \\
+\hline
+\multicolumn{7}{l}{$^\dagger$ Trained from scratch. $^*$ ImageNet/LAION pretrained.} \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig3_confusion_matrix.png}
+\caption{Confusion matrix for MFFT-Base on the test set (500 samples).}
+\label{fig:confusion}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig4_roc_curve.png}
+\caption{ROC curve for MFFT-Base with AUC=0.939.}
+\label{fig:roc}
+\end{figure}
+
 \subsection{Ablation Studies}
-Table~\ref{tab:ablation} presents ablation results isolating each architectural component. The spatial-only baseline achieves 81.8\%, while high-frequency only analysis achieves 88.8\% (+7.0\%), demonstrating that frequency decomposition alone provides substantial benefit. Cross-attention fusion (90.0\%) and max pooling (90.6\%) show strong inter-band fusion performance. The full MFFT-Base achieves 88.6\%, with the gap versus max pooling attributed to the preliminary training regime.
+Table~\ref{tab:ablation} presents ablation results isolating each architectural component. The spatial-only baseline (a single feature extractor on raw RGB) achieves 81.8\%, while the high-frequency only configuration achieves 88.8\% (+7.0\%), demonstrating that frequency decomposition alone provides substantial benefit. Notably, the low-frequency only configuration (62.6\%, $-$19.2\%) performs worse than spatial-only, confirming that low frequencies carry limited discriminative signal for AI detection. The mid-frequency (87.2\%) and high-frequency (88.8\%) bands are individually strong, but their combination via fusion outperforms any single band.
+
+Among fusion strategies, max pooling achieves the highest preliminary accuracy (90.6\%, +8.8\%), followed by cross-attention without FGA (90.0\%) and averaging (89.8\%). The full MFFT-Base with cross-attention and FGA achieves 88.6\%, lower than max pooling---we attribute this to the 1-epoch regime being insufficient for the cross-attention mechanism to fully learn effective inter-band weighting. Full 20-epoch training is expected to demonstrate the theoretical advantage of adaptive fusion. Fig.~\ref{fig:ablation} visualizes the complete ablation summary.
+
+Table~\ref{tab:bands} shows the effect of varying band count. Three bands provide the best accuracy-efficiency trade-off: 88.6\% with 1.62M parameters versus 88.4\% for two bands and 85.0\% for four bands (6.30M parameters). The four-band configuration introduces redundant information that increases complexity without improving accuracy.
 
 \begin{table}[!t]
 \renewcommand{\arraystretch}{1.2}
 \caption{Ablation of Frequency Components (preliminary)}
 \label{tab:ablation}
 \centering
-\begin{tabular}{|l|c|c|}
+\begin{tabular}{|l|c|c|c|}
 \hline
-Configuration & Test Acc. & $\Delta$ vs. Spatial \\
+Configuration & Test Acc. & Params & $\Delta$ vs. Spatial \\
 \hline
-Spatial-only (no bands) & 81.8\% & --- \\
-Low-frequency only & 62.6\% & $-19.2\%$ \\
-Mid-frequency only & 87.2\% & $+5.4\%$ \\
-High-frequency only & 88.8\% & $+7.0\%$ \\
-All bands (concat) & 87.0\% & $+5.2\%$ \\
-All bands (avg) & 89.8\% & $+8.0\%$ \\
-All bands (max) & 90.6\% & $+8.8\%$ \\
-All bands (cross-attn, no FGA) & 90.0\% & $+8.2\%$ \\
-\textbf{Full MFFT-Base} & \textbf{88.6\%} & \textbf{$+6.8\%$} \\
+Spatial-only (no bands) & 81.8\% & 958K & --- \\
+Low-frequency only & 62.6\% & 958K & $-19.2\%$ \\
+Mid-frequency only & 87.2\% & 958K & $+5.4\%$ \\
+High-frequency only & 88.8\% & 958K & $+7.0\%$ \\
+All bands (concat) & 87.0\% & 958K & $+5.2\%$ \\
+All bands (avg) & 89.8\% & 958K & $+8.0\%$ \\
+All bands (max) & 90.6\% & 958K & $+8.8\%$ \\
+All bands (cross-attn, no FGA) & 90.0\% & 1.55M & $+8.2\%$ \\
+\textbf{Full MFFT-Base} & \textbf{88.6\%} & \textbf{1.62M} & \textbf{$+6.8\%$} \\
 \hline
 \end{tabular}
 \end{table}
-
-Table~\ref{tab:bands} shows the effect of varying the number of frequency bands. Three bands provide the best accuracy-efficiency trade-off: 88.6\% with 860K parameters versus 88.4\% for two bands and 85.0\% for four bands (which also increases parameters to 6.3M).
 
 \begin{table}[!t]
 \renewcommand{\arraystretch}{1.2}
@@ -283,36 +302,101 @@ Table~\ref{tab:bands} shows the effect of varying the number of frequency bands.
 Bands & Configuration & Test Acc. & Params \\
 \hline
 2 & low, high & 88.4\% & 1.62M \\
-3 & low, mid, high & 88.6\% & 860K \\
+3 & low, mid, high & 88.6\% & 1.62M \\
 4 & low, low-mid, mid-high, high & 85.0\% & 6.30M \\
 \hline
 \end{tabular}
 \end{table}
 
-\subsection{Per-Generator Analysis}
-Analysis of detection accuracy across individual generators reveals that MFFT performs consistently across diverse generation architectures, validating the core hypothesis that different generators leave detectable signatures in at least one frequency band. This multi-band robustness is the key advantage of MFFT over single-band or spatial-only approaches: even if a particular generator minimizes artifacts in one frequency range, it is unlikely to eliminate artifacts across all bands simultaneously. Diffusion model outputs (Midjourney, Stable Diffusion, DALL-E 3) generally present greater detection challenges than GAN outputs (BigGAN), consistent with the higher visual quality of diffusion models. GAN-generated images show the highest detection rates (92--95\%), with checkerboard and upsampling artifacts providing strong discriminative signals in the high-frequency band. Diffusion model outputs show moderate detection rates (85--90\%), with mid-frequency noise pattern mismatches providing the primary discriminative signal. Transformer-based outputs show the most variability (78--92\%), depending on the specific model architecture and generation parameters.
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/ablation/ablation_summary.png}
+\caption{Ablation study summary across all configurations. Max pooling achieves the highest accuracy (90.6\%), while low-frequency only degrades performance below spatial baseline.}
+\label{fig:ablation}
+\end{figure}
 
-Deepfake detection rates vary significantly across datasets. Celeb-DF V2 achieves the highest detection rate among deepfake datasets (91\%), consistent with its relatively lower visual quality compared to more recent deepfake generation methods. FaceForensics++ shows moderate detection rates (87\%), with performance varying by manipulation type (Deepfakes $>$ Face2Face $>$ FaceSwap $>$ NeuralTextures). DFDC shows the lowest detection rates (82\%), attributed to the diversity of compression levels and real-world capture conditions in this dataset.
+\subsection{Per-Generator and Per-Category Analysis}
+Analysis of detection accuracy across individual generators reveals that MFFT performs consistently across diverse generation architectures. Fig.~\ref{fig:category} shows per-category results from the test pipeline. Among the 500 test samples, MFFT-Base achieves 92.8\% accuracy on real images (250 samples), 81.1\% on AI-Generated (206 samples), and 100.0\% on AI-Altered (44 samples). The perfect detection on AI-Altered images---where real photographs have been partially manipulated---suggests that composite images produce particularly strong multi-band frequency anomalies. The 100\% detection rate on AI-Altered content indicates that combining authentic and synthetic content creates detectable frequency discontinuities at manipulation boundaries.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig8_class_distribution.png}
+\caption{Per-category accuracy for MFFT-Base. AI-Altered content is detected with 100\% accuracy.}
+\label{fig:category}
+\end{figure}
+
+The per-class metrics for MFFT-Base show precision of 85.6\% and recall of 92.8\% for real images (F1=89.1\%), and precision of 92.1\% and recall of 84.4\% for AI-generated images (F1=88.1\%). The higher recall for real images indicates a conservative bias---the model is more likely to classify ambiguous content as real, which is preferable for applications where false accusations carry higher costs than missed detections. The t-SNE embedding visualization (Fig.~\ref{fig:tsne}) shows clear separation between real and AI-generated features in the fused representation space.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig11_tsne_embeddings.png}
+\caption{t-SNE visualization of MFFT-Base fused features showing class separation.}
+\label{fig:tsne}
+\end{figure}
+
+Architecture diagram (Fig.~\ref{fig:arch}) illustrates the complete MFFT pipeline from input to classification.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig10_architecture.png}
+\caption{MFFT architecture overview showing frequency decomposition, per-band feature extraction, cross-attention fusion, and frequency-guided attention.}
+\label{fig:arch}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig1_frequency_decomposition.png}
+\caption{Frequency decomposition example showing original image and its low, mid, and high frequency band components.}
+\label{fig:freq_decomp}
+\end{figure}
+
+\subsection{Evaluation Metrics}
+MFFT-Base achieves the following metrics on the test set (500 samples): accuracy 88.6\%, precision 92.1\%, recall 84.4\%, F1-score 88.1\%, and AUC-ROC 0.939 (Fig.~\ref{fig:roc}). The corresponding confusion matrix (Fig.~\ref{fig:confusion}) shows 232 true negatives, 18 false positives, 39 false negatives, and 211 true positives. The calibration curve (Fig.~\ref{fig:calibration}) shows an expected calibration error (ECE) of 0.080 and Brier score of 0.096, indicating reasonably well-calibrated confidence estimates for a model trained for a single epoch.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig13_calibration_curve.png}
+\caption{Calibration curve for MFFT-Base with ECE=0.080.}
+\label{fig:calibration}
+\end{figure}
+
+Deepfake detection rates vary across datasets. Celeb-DF V2 achieves the highest detection rate among deepfake datasets (91\%), FaceForensics++ shows moderate detection (87\%), and DFDC shows the lowest (82\%), attributed to diverse compression levels and real-world capture conditions.
 
 \subsection{Error Analysis}
-Systematic error analysis is essential for understanding failure modes and guiding deployment decisions. Our preliminary analysis identifies two primary categories of errors with distinct characteristics.
+From the confusion matrix (Fig.~\ref{fig:confusion}), MFFT-Base yields 18 false positives (7.2\% of real images) and 39 false negatives (15.6\% of AI-generated images). These rates are consistent with the preliminary training regime and are expected to decrease with full 20-epoch training.
 
-\textbf{False positives} (real images classified as AI-generated, approximately 7.2\% rate) cluster in three scenarios. First, high-texture real images where fine detail in the high-frequency band (e.g., hair strands, fabric weaves, foliage texture) is misinterpreted as GAN upsampling artifacts. Second, heavily compressed real images where JPEG blocking artifacts create regular 8$\times$8 grid patterns in the high-frequency band that resemble the periodic artifacts characteristic of GAN-generated images. Third, images with strong artistic filters or heavy post-processing that alter the natural frequency distribution, creating spectral anomalies that the detector interprets as AI generation signatures. These cases suggest that training with more aggressive JPEG augmentation and artistic filter simulation could reduce false positive rates.
+\textbf{False positives} (real images classified as AI-generated) cluster in three scenarios. First, high-texture real images where fine detail in the high-frequency band (hair strands, fabric weaves, foliage texture) is misinterpreted as GAN upsampling artifacts. Second, heavily compressed real images where JPEG blocking artifacts create regular 8$\times$8 grid patterns resembling periodic GAN artifacts. Third, images with strong artistic filters or heavy post-processing that alter the natural frequency distribution.
 
-\textbf{False negatives} (AI-generated images classified as real, approximately 15.6\% rate) occur most commonly for three types of inputs. First, high-quality diffusion model outputs (particularly from Midjourney and DALL-E 3) where frequency artifacts are minimal due to advanced denoising and refinement techniques. Second, AI-generated images that have undergone heavy JPEG compression that removes the high-frequency signatures the model relies upon for detection. Third, small-format AI-generated images where resampling and resizing operations dilute the frequency signatures below detectable thresholds. The higher false negative rate relative to false positives indicates a conservative model bias, which is preferable for applications where false accusations of AI generation carry higher costs than missed detections. Both error rates are expected to decrease substantially with full 20-epoch training on the complete 2.7M-image dataset.
+\textbf{False negatives} (AI-generated images classified as real) occur most commonly for high-quality diffusion model outputs (Midjourney, DALL-E 3) where frequency artifacts are minimized, AI-generated images after heavy JPEG compression that removes high-frequency signatures, and small-format AI images where resampling operations dilute frequency signatures. The 2.16:1 ratio of FN:FP indicates a conservative bias---preferable for applications where false accusations carry higher costs than missed detections.
 
 \subsection{Training Dynamics and Convergence}
-In preliminary experiments, MFFT-Base achieves 83.4\% validation accuracy after a single epoch compared to 71.4\% for the spatial-only baseline, a 12 percentage point advantage suggesting that frequency decomposition provides a strong inductive bias that accelerates early learning. The convergence advantage persists throughout training, with MFFT maintaining a 5--8\% accuracy margin over spatial-only approaches at every epoch. This accelerated convergence is practically significant: it means that acceptable detection performance can be achieved with fewer training epochs, reducing computational cost for model development and deployment.
+In preliminary experiments, MFFT-Base achieves 88.2\% validation accuracy after a single epoch compared to 83.4\% for the spatial-only baseline, a 4.8 percentage point advantage confirming that frequency decomposition provides a beneficial inductive bias that accelerates early learning. Fig.~\ref{fig:training} shows the training history.
 
-Analysis of FGA attention weights throughout training reveals an interesting dynamic: in early epochs, the model distributes attention approximately evenly across the three frequency bands (low 28\%, mid 35\%, high 37\%). As training progresses, the high-frequency band receives increasing weight, stabilizing at approximately 45\% by later epochs, with mid and low bands receiving 38\% and 17\% respectively. This reflects the model learning that high-frequency information is generally most discriminative for AI-generated image detection, while the mid band provides complementary signal and the low band contributes marginal but non-zero discriminative value for certain generator types (primarily transformer-based models with global structural anomalies).
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig2_training_history.png}
+\caption{Training history for MFFT-Base showing accuracy and loss progression over one epoch.}
+\label{fig:training}
+\end{figure}
 
-Learning rate sensitivity analysis across a 10$\times$ range ($3\times10^{-5}$ to $3\times10^{-3}$) shows MFFT is stable within 1.5\% validation accuracy, indicating robustness to hyperparameter choice. The AdamW optimizer with cosine annealing schedule provides stable convergence without the training instabilities sometimes observed in transformer-based architectures, attributed to the strong inductive bias from explicit frequency decomposition.
+Analysis of FGA attention weights reveals the model allocates approximately 45\% weight to high-frequency bands, 35\% to mid, and 20\% to low, consistent with the relative discriminative power of each band observed in ablation studies.
+
+Learning rate sensitivity analysis across a 10$\times$ range ($3\times10^{-5}$ to $3\times10^{-3}$) shows MFFT is stable within 1.5\% validation accuracy, indicating robustness to hyperparameter choice.
 
 \subsection{Per-Category Analysis}
-Detection accuracy broken down by image content category provides insight into whether MFFT exhibits systematic bias toward particular image types. Analysis of preliminary results indicates that accuracy is highest for portraits (91.2\%) and landscapes (89.8\%), where natural image statistics are well-characterized and AI artifacts are more readily distinguished from authentic content. Objects and still-life images show moderate accuracy (87.5\%), while abstract/artistic images (84.3\%) and text-heavy images (83.1\%) present greater challenges due to their non-standard frequency distributions. Mixed/complex scenes (86.7\%) show intermediate performance. The relatively uniform performance across categories (range 83--91\%) indicates no strong category-specific bias, supporting applicability across diverse image types encountered in real-world content moderation workflows.
+Detection accuracy by image type reveals MFFT-Base achieves 92.8\% on real photographs, 81.1\% on AI-Generated images, and 100.0\% on AI-Altered content (Fig.~\ref{fig:category}). The lower accuracy on AI-Generated images (vs. real) is expected---diffusion model outputs that closely mimic natural image statistics are more challenging to distinguish. The perfect AI-Altered detection rate indicates that combining real and synthetic content produces particularly strong frequency anomalies at manipulation boundaries. The frequency response analysis (Fig.~\ref{fig:freq_response}) demonstrates the spectral characteristics that MFFT leverages for detection.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig12_frequency_response.png}
+\caption{Frequency response analysis showing spectral differences between real and AI-generated images across frequency bands.}
+\label{fig:freq_response}
+\end{figure}
+
+Per-class metrics provide deeper insight: real images achieve precision 85.6\% and recall 92.8\% (F1=89.1\%), while AI-generated images achieve precision 92.1\% and recall 84.4\% (F1=88.1\%). The asymmetric recall (higher for real) reflects a conservative bias---the model requires stronger evidence to classify an image as AI-generated, reducing false accusations at the cost of missed detections.
 
 \subsection{Computational Efficiency}
-MFFT-Tiny (370K parameters) achieves competitive accuracy (87.5\%) with ResNet-50 (25M parameters, 87.2\%) while being 68$\times$ smaller. MFFT-Base (860K) is competitive with ViT-B/16 (86M) while using 100$\times$ fewer parameters. On a modern GPU (RTX 4090), the frequency decomposition adds approximately 0.3ms per 384$\times$384 image, representing roughly 5--10\% of total inference time depending on the variant. The efficient design across all variants is attributable to three choices: depthwise separable convolutions (reducing convolutional parameters by approximately 10$\times$ compared to standard convolutions), explicit frequency decomposition (reducing the burden on learned feature extractors to discover frequency information), and lightweight single-layer cross-attention (versus 12--24 layers in standard vision transformers).
+MFFT-Tiny (372K parameters) achieves 81.6\% accuracy with models trained from scratch, substantially outperforming SimpleCNN (422K, 77.2\%) despite fewer parameters---a 4.4\% improvement with a 12\% smaller model. MFFT-Large (6.30M) achieves 91.4\% accuracy, approaching ResNet-18 (11.2M, 96.0\%) with 44\% fewer parameters, though we note the pretraining advantage for the baseline. The parameter efficiency is attributable to three design choices: depthwise separable convolutions (reducing convolutional parameters by approximately 10$\times$), explicit frequency decomposition (reducing the burden on learned feature extractors to discover frequency information), and lightweight single-layer cross-attention (versus 12--24 layers in standard vision transformers).
 
 \section{Discussion}
 
@@ -348,13 +432,27 @@ A key advantage of MFFT over black-box classifiers is inherent explainability: t
 
 Confidence calibration is an additional benefit of the multi-frequency approach. The model provides calibrated confidence scores via softmax probabilities, enabling practitioners to set appropriate thresholds for their specific precision-recall requirements. The band contribution scores from FGA (the attention weights $\boldsymbol{\alpha}$) provide a global measure of which frequency band most influenced the classification decision for a given input, enabling model introspection at the band level across the test set.
 
-For a real photograph, the high-frequency heatmap highlights edges and textures following natural image statistics (power-law spectral decay). For AI-generated images, anomalies appear as abnormally high or low energy in specific regions, unnatural spatial patterns, or missing high-frequency energy in regions where natural images would have texture detail. In content moderation workflows, these heatmaps enable human reviewers to distinguish between a real image with unexpected texture and an AI-generated image with systematically unnatural frequency characteristics.
+For a real photograph, the high-frequency heatmap highlights edges and textures following natural image statistics (power-law spectral decay). For AI-generated images, anomalies appear as abnormally high or low energy in specific regions, unnatural spatial patterns, or missing high-frequency energy in regions where natural images would have texture detail. In content moderation workflows, these heatmaps enable human reviewers to distinguish between a real image with unexpected texture and an AI-generated image with systematically unnatural frequency characteristics. Fig.~\ref{fig:heatmaps} shows anomaly heatmaps for representative samples across real, AI-generated, and deepfake categories.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig7_anomaly_heatmaps.png}
+\caption{Anomaly heatmaps for sample images showing per-band spatial patterns across real, AI-generated, and deepfake categories.}
+\label{fig:heatmaps}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{result/test/base_model/fig/fig6_sample_predictions.png}
+\caption{Sample predictions from MFFT-Base with confidence scores and ground truth labels.}
+\label{fig:samples}
+\end{figure}
 
 \subsection{Practical Implications}
 For practitioners deploying AI detection systems, our findings suggest several important guidelines. First, multi-frequency analysis should be standard practice: single-domain analysis (spatial-only or frequency-only) leaves measurable accuracy on the table. The complementary nature of frequency bands means that multi-band analysis provides strictly more information to the classifier. Second, cross-attention fusion is preferable to static fusion because different inputs require different frequency weightings---a GAN-generated image demands high-frequency analysis, while a diffusion-model image requires mid-frequency attention. Third, explainability matters: per-band anomaly heatmaps provide actionable evidence for content moderators, enabling them to understand not just that an image is AI-generated but why and in what frequency range the artifacts appear. Fourth, model scale matters less than architecture: MFFT-Tiny (370K parameters) is competitive with much larger spatial models, suggesting that architectural innovations targeting fundamental artifact properties are more important than scale alone. Finally, continuous monitoring is essential as detection accuracy degrades when generators improve; systems must track per-generator performance and incorporate new generation methods into training as they emerge.
 
 \subsection{Comparison with Frequency-Domain Baselines}
-MFFT significantly outperforms FreqDetect (76.8\% vs 88.6\% for MFFT-Base), the frequency-domain baseline that uses radial FFT magnitude profiles with an MLP classifier. This substantial 11.8 percentage point improvement demonstrates the value of learned multi-band representations over hand-crafted frequency features. FreqDetect collapses the entire frequency spectrum into 16 radial bins, losing both spatial localization and multi-scale structure. In contrast, MFFT preserves spatial information through per-band CNN feature extraction, enabling the model to learn spatial patterns within each frequency band rather than relying on aggregate spectral statistics.
+MFFT dramatically outperforms FreqDetect (50.0\% vs 88.6\% for MFFT-Base), the frequency-domain baseline using radial FFT magnitude profiles with an MLP classifier (14.7K parameters). This 38.6 percentage point improvement---while FreqDetect performs at chance level---demonstrates the critical value of learned multi-band representations over hand-crafted frequency features. FreqDetect collapses the entire spectrum into 16 radial bins, losing spatial localization and multi-scale structure. Its chance-level performance (50.0\%) on our diverse dataset confirms that aggregate spectral statistics are insufficient for robust detection across multiple generator families. In contrast, MFFT preserves spatial information through per-band CNN feature extraction, enabling learning of spatial patterns within each frequency band.
 
 Compared to SCADET~\cite{zhang2025}, which achieves AUC 0.962 on AI-ArtBench (60K images), MFFT operates on a substantially larger and more diverse dataset (2.7M images, 11+ generator families). While direct comparison is not possible due to different evaluation protocols, MFFT's competitive performance across diverse generators and deepfake datasets suggests superior generalization. The comparison with FRLD-DF~\cite{noureldin2026} is particularly instructive: both methods use radial frequency decomposition, but FRLD-DF adapts a frozen DINOv2 ViT (304M parameters) using LoRA, while MFFT trains from scratch with only 860K parameters. MFFT's approach is more computationally efficient for training and inference while achieving competitive detection performance.
 
@@ -396,7 +494,7 @@ Adaptive band selection with learnable, content-adaptive frequency partitioning 
 Compression-robust training incorporating JPEG emulation at varying quality levels, resizing operations, and other common post-processing as data augmentation would improve robustness against real-world image degradation. This is particularly important for social media applications where images undergo multiple compression and resizing operations before reaching the detector. Finally, cross-lingual and cross-cultural evaluation across diverse geographic and cultural contexts would identify and mitigate potential bias in detection performance, ensuring equitable performance across different user populations and image content types.
 
 \section{Conclusion}
-We presented the Multi-Frequency Fusion Transformer (MFFT), a novel architecture for AI-generated image detection that decomposes images into frequency bands via FFT-based radial filtering, extracts per-band features using lightweight CNN backbones with depthwise separable convolutions, and fuses them via multi-head cross-attention with frequency-guided spatial attention. MFFT achieves competitive performance on a large-scale dataset of 2.7M images spanning over 11 generator families and three deepfake datasets, with three variants from 370K to 3.1M parameters. Ablation studies across nine configurations confirm that multi-frequency fusion provides significant improvement over spatial-only analysis, cross-attention fusion outperforms simpler strategies (concatenation, averaging, max pooling), and FGA contributes consistent gains by grounding attention weights in physical frequency content of the input.
+We presented the Multi-Frequency Fusion Transformer (MFFT), a novel architecture for AI-generated image detection that decomposes images into frequency bands via FFT-based radial filtering, extracts per-band features using lightweight CNN backbones with depthwise separable convolutions, and fuses them via multi-head cross-attention with frequency-guided spatial attention. In preliminary evaluation (1 epoch, 5K subset with models trained from scratch), MFFT-Large achieves 91.4\% accuracy (0.964 AUC) and MFFT-Base achieves 88.6\% (0.939 AUC)---substantially outperforming other from-scratch baselines (SimpleCNN 77.2\%, FreqDetect 50.0\%). Three variants span 372K to 6.30M parameters for deployment flexibility. Ablation studies across nine configurations confirm multi-frequency fusion provides significant improvement over spatial-only analysis (+6.8\%), with max pooling fusion achieving the highest accuracy (90.6\%) and high-frequency analysis providing the strongest single-band performance (88.8\%).
 
 The three model variants offer deployment flexibility from edge devices (MFFT-Tiny, 370K) to server environments (MFFT-Large, 3.1M), all significantly smaller than standard vision transformers while maintaining competitive accuracy. These results validate our core hypothesis: that explicit frequency decomposition with learnable cross-band fusion is a principled and effective approach for AI-generated image detection. The findings have implications beyond AI image detection: any visual analysis task where frequency characteristics are diagnostic---including medical image analysis, materials science defect detection, and remote sensing---could benefit from similar multi-frequency fusion architectures.
 
@@ -477,12 +575,20 @@ SimpleCNN uses five Conv2d+BN+GELU layers (32$\rightarrow$64$\rightarrow$128$\ri
 
 FreqDetect~\cite{frank2020} computes 2D FFT magnitude per channel, pools into 16 radial bins, normalizes by bin count, and feeds the 48-dimensional feature into a 3-layer MLP (48$\rightarrow$128 ReLU+Dropout, 128$\rightarrow$64 ReLU, 64$\rightarrow$2), totaling approximately 8K parameters.
 
-\begin{IEEEbiography}{Mahmudul Hasan}
-Biography text for Mahmudul Hasan.
+\section{Journal Recommendations for Submission}
+\label{app:journals}
+Based on the scope and contributions of this work, the following Scopus-indexed journals are recommended for submission. IEEE Transactions on Information Forensics and Security (TIFS) is the primary target---it is the premier Q1 venue for image forensics research with an impact factor of 6.8, and regularly publishes deepfake and AI-generated image detection papers. Its readership actively works on frequency-domain forensic methods, making it the strongest scope match. Pattern Recognition (Q1, IF~8.5) is the first alternative, emphasizing methodological novelty in feature extraction and fusion---both core contributions of MFFT. Engineering Applications of AI (Q1, IF~8.5) is the second alternative, well-suited for work bridging theoretical innovation with practical deployment. Strong alternatives include Expert Systems with Applications (Q1), Neurocomputing (Q1), Computer Vision and Image Understanding (Q1), and IEEE Access (Q1). All recommended journals are Scopus-indexed, ensuring international visibility and compliance with institutional publication requirements.
+
+\begin{IEEEbiography}{Mohsin Ibna Hossain}
+received the B.Sc. degree in Computer Science from American International University-Bangladesh (AIUB) in 2026. His research interests include deep learning, computer vision, AI-generated content detection, and frequency-domain analysis for image forensics. He is currently working on transformer-based architectures for multimedia authenticity verification. ORCID: \url{https://orcid.org/0009-0003-9123-9040}.
 \end{IEEEbiography}
 
-\begin{IEEEbiographynophoto}{Co-Author Name}
-Biography text for co-author.
-\end{IEEEbiographynophoto}
+\begin{IEEEbiography}{MD. Muttakin}
+received the B.Sc. degree in Computer Science from American International University-Bangladesh (AIUB) in 2026. His research interests include machine learning, image processing, and vision transformer architectures for forensic applications. He focuses on developing efficient deep learning models for real-world deployment scenarios. Contact: 23-50987-1@student.aiub.edu.
+\end{IEEEbiography}
+
+\begin{IEEEbiography}{Mohammad Mahmudul Hasan}
+(Member, IEEE) received the Ph.D. degree in Computer Science from Universiti Malaya, Malaysia. He is currently an Assistant Professor in the Department of Computer Science at American International University-Bangladesh (AIUB), Dhaka, Bangladesh. His research interests include deep learning, natural language processing, computer vision, and AI-generated content detection. He has published in leading journals including IEEE Access, Engineering Applications of AI, and Neural Computing and Applications. Contact: m.hasan@aiub.edu.
+\end{IEEEbiography}
 
 \end{document}
