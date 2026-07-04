@@ -33,17 +33,30 @@ from .schemas import (
 from .model_server import ModelServer
 
 
-model_server: Optional[ModelServer] = None
+import os
+
+# variant registry: every loaded variant is selectable per request
+MODEL_INFO = {
+    "tiny":  {"params": "372K",  "description": "Fastest - edge/mobile profile"},
+    "base":  {"params": "1.62M", "description": "Balanced accuracy and speed"},
+    "large": {"params": "6.30M", "description": "Highest accuracy profile"},
+}
+model_registry: dict = {}
+DEFAULT_VARIANT = os.environ.get("MFFT_VARIANT", "base")
+IMAGE_SIZE = int(os.environ.get("MFFT_IMAGE_SIZE", "384"))
+DEMO_MODE = os.environ.get("MFFT_DEMO") == "1"
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global model_server
-    import os
+def _find_checkpoint(variant: str) -> Optional[str]:
     checkpoint_dir = Path(__file__).parent.parent / "model" / "checkpoints"
-    variant = os.environ.get("MFFT_VARIANT", "base")
-    env_ckpt = os.environ.get("MFFT_CHECKPOINT")
-    candidates = ([env_ckpt] if env_ckpt else []) + [
+    env_dir = os.environ.get("MFFT_CHECKPOINT_DIR")
+    candidates = []
+    if env_dir:
+        candidates += [
+            str(Path(env_dir) / f"{variant}.pt"),
+            str(Path(env_dir) / f"best_mfft_{variant}.pt"),
+        ]
+    candidates += [
         # written by the train notebooks (full-scale run)
         str(checkpoint_dir / f"{variant}_model" / f"best_mfft_{variant}.pt"),
         # written by the verification / pilot notebooks
@@ -51,19 +64,48 @@ async def lifespan(app: FastAPI):
         str(checkpoint_dir / "test" / f"{variant}_model" / "best.pt"),
         # legacy locations
         str(checkpoint_dir / f"best_mfft_{variant}.pt"),
-        str(checkpoint_dir / "best.pt"),
     ]
-    model_path = next((c for c in candidates if c and Path(c).exists()), None)
-    if model_path is None and os.environ.get("MFFT_ALLOW_RANDOM") != "1":
-        raise RuntimeError(
-            "No MFFT checkpoint found - refusing to serve random predictions. "
-            "Train the model first (see DGX_RUN_GUIDE.md), or set "
-            "MFFT_CHECKPOINT=/path/to/ckpt, or set MFFT_ALLOW_RANDOM=1 "
-            "for development only."
-        )
-    model_server = ModelServer(model_path, variant=variant)
+    return next((c for c in candidates if Path(c).exists()), None)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    env_ckpt = os.environ.get("MFFT_CHECKPOINT")  # single-model override
+    for variant in MODEL_INFO:
+        ckpt = env_ckpt if (env_ckpt and variant == DEFAULT_VARIANT) \
+            else _find_checkpoint(variant)
+        if ckpt:
+            try:
+                model_registry[variant] = ModelServer(
+                    ckpt, variant=variant, image_size=IMAGE_SIZE)
+            except Exception as e:
+                print(f"[startup] {variant}: failed to load {ckpt}: {e}")
+        else:
+            print(f"[startup] {variant}: no checkpoint found, not serving")
+
+    if not model_registry:
+        if os.environ.get("MFFT_ALLOW_RANDOM") == "1":
+            model_registry[DEFAULT_VARIANT] = ModelServer(
+                None, variant=DEFAULT_VARIANT, image_size=IMAGE_SIZE)
+        else:
+            raise RuntimeError(
+                "No MFFT checkpoint found for any variant - refusing to serve "
+                "random predictions. Train the model first (see DGX_RUN_GUIDE.md), "
+                "set MFFT_CHECKPOINT_DIR, or set MFFT_ALLOW_RANDOM=1 (dev only)."
+            )
+    print(f"[startup] serving variants: {sorted(model_registry)}")
     yield
-    model_server = None
+    model_registry.clear()
+
+
+def get_server(model: str) -> ModelServer:
+    variant = (model or DEFAULT_VARIANT).lower()
+    if variant not in model_registry:
+        raise HTTPException(
+            404,
+            f"Model '{variant}' not available. Loaded: {sorted(model_registry)}",
+        )
+    return model_registry[variant]
 
 
 app = FastAPI(
@@ -141,19 +183,38 @@ def get_api_key(authorization: str = "") -> str:
 async def health():
     return HealthResponse(
         status="healthy",
-        model_loaded=model_server is not None and model_server.is_loaded,
-        version="2.0.0",
+        model_loaded=len(model_registry) > 0,
+        version="2.1.0",
         timestamp=datetime.now().isoformat(),
     )
+
+
+@app.get("/models")
+async def list_models():
+    """Available model variants for the `model` query parameter."""
+    return {
+        "default": DEFAULT_VARIANT if DEFAULT_VARIANT in model_registry
+        else (sorted(model_registry)[0] if model_registry else None),
+        "models": [
+            {
+                "id": v,
+                "loaded": v in model_registry,
+                **MODEL_INFO[v],
+            }
+            for v in MODEL_INFO
+        ],
+    }
 
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(
     file: UploadFile = File(...),
+    model: str = "base",
     api_key: str = Depends(get_api_key),
 ):
     usage_tracker.check_limit(api_key)
     tier_limits = usage_tracker.get_tier_limits(api_key)
+    server = get_server(model)
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
@@ -167,7 +228,7 @@ async def predict(
     except Exception:
         raise HTTPException(400, "Invalid image file")
 
-    result = model_server.predict(image)
+    result = server.predict(image)
 
     response = PredictionResponse(
         prediction="ai_generated" if result["prediction"] == 1 else "real",
@@ -178,7 +239,7 @@ async def predict(
         tier=tier_limits,
     )
 
-    if tier_limits["report"]:
+    if tier_limits["report"] or DEMO_MODE:
         heatmap_b64 = _heatmap_to_base64(result["heatmaps"])
         response.anomaly_heatmap = heatmap_b64
         response.frequency_band_contributions = result.get("frequency_band_contributions", {})
@@ -189,10 +250,12 @@ async def predict(
 @app.post("/predict/batch", response_model=BatchPredictionResponse)
 async def predict_batch(
     files: List[UploadFile] = File(...),
+    model: str = "base",
     api_key: str = Depends(get_api_key),
 ):
     usage_tracker.check_limit(api_key)
     tier_limits = usage_tracker.get_tier_limits(api_key)
+    server = get_server(model)
 
     if len(files) > tier_limits["batch_size"]:
         raise HTTPException(
@@ -205,7 +268,7 @@ async def predict_batch(
         contents = await file.read()
         try:
             image = Image.open(io.BytesIO(contents)).convert("RGB")
-            result = model_server.predict(image)
+            result = server.predict(image)
             results.append(SinglePrediction(
                 filename=file.filename or "unknown",
                 prediction="ai_generated" if result["prediction"] == 1 else "real",

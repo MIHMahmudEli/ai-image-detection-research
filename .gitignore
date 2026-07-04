@@ -11,9 +11,10 @@ venv/
 .venv/
 env/
 
-# Model checkpoints
-model/checkpoints/*.pt
-model/checkpoints/*.pth
+# Model checkpoints — ignore new ones at every level (verify/, logo/, variant
+# dirs). Pilot demo checkpoints already tracked in git remain tracked.
+model/checkpoints/**/*.pt
+model/checkpoints/**/*.pth
 
 # Large baseline checkpoints (>100MB — exceed GitHub limit)
 model/model/checkpoints/test/baselines_model/clip/
@@ -23,7 +24,11 @@ model/model/checkpoints/test/baselines_model/swin_t/
 # API keys
 .env
 **/.env
+**/.env.local
 !**/.env.example
+
+# Generated HF Space bundle (rebuilt by deploy_hf_space.py; contains checkpoints)
+hf_space/
 
 # Web
 web/node_modules/
@@ -32,8 +37,9 @@ web/out/
 
 # Dataset images (too large — 17 GB)
 dataset/images/
-dataset/metadata/*.csv
-dataset/metadata/*.json
+dataset/metadata/**/*.csv
+dataset/metadata/**/*.json
+dataset/_archive/
 dataset/.env
 
 # Image files anywhere

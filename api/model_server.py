@@ -17,9 +17,12 @@ class ModelServer:
     Handles model loading, preprocessing, prediction, and warmup.
     """
 
-    def __init__(self, checkpoint_path: Optional[str] = None, variant: str = "base"):
+    def __init__(self, checkpoint_path: Optional[str] = None, variant: str = "base",
+                 image_size: int = 384):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"[ModelServer] Device: {self.device} | Variant: {variant}")
+        self.variant = variant
+        self.image_size = image_size
+        print(f"[ModelServer] Device: {self.device} | Variant: {variant} | Size: {image_size}")
 
         self.model = build_mfft(variant)
         self.model = self.model.to(self.device)
@@ -44,7 +47,7 @@ class ModelServer:
         self.is_loaded = True
 
     def warmup(self, n_warmup: int = 3):
-        dummy = torch.randn(1, 3, 384, 384).to(self.device)
+        dummy = torch.randn(1, 3, self.image_size, self.image_size).to(self.device)
         self.model.eval()
         with torch.no_grad():
             for _ in range(n_warmup):
@@ -82,7 +85,8 @@ class ModelServer:
         return result
 
     def _preprocess(self, image: Image.Image) -> torch.Tensor:
-        image = image.convert("RGB").resize((384, 384), Image.Resampling.LANCZOS)
+        image = image.convert("RGB").resize(
+            (self.image_size, self.image_size), Image.Resampling.LANCZOS)
         img_array = np.array(image, dtype=np.float32) / 255.0
 
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
