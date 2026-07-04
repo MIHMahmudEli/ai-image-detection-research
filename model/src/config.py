@@ -44,9 +44,13 @@ class DatasetConfig:
             os.path.join(os.path.dirname(__file__), "..", "..")
         ), "dataset", "metadata", "clean_metadata.csv"),
     ])
-    undersample: bool = True
-    val_split: float = 0.15
-    test_split: float = 0.0
+    undersample: bool = False          # superseded by weighted sampling
+    use_weighted_sampler: bool = True  # oversample minority class, keep all data
+    val_split: float = 0.10
+    test_split: float = 0.10
+    split_index_path: str = os.path.join(os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    ), "dataset", "metadata", "split_indices.json")
 
 
 @dataclass

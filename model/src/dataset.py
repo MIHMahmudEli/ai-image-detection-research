@@ -1,3 +1,5 @@
+import io
+import json
 import torch
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from pathlib import Path
@@ -10,8 +12,30 @@ from typing import Optional, Callable, Dict, List, Tuple
 from torchvision import transforms
 
 
+class RandomJPEGCompression:
+    """Re-encode the image as JPEG at a random quality level.
+
+    Detectors that never see compression during training collapse on
+    real-world (recompressed) images, so this augmentation is applied
+    before tensor conversion. Operates on PIL images.
+    """
+    def __init__(self, quality_range: Tuple[int, int] = (30, 95), p: float = 0.5):
+        self.quality_range = quality_range
+        self.p = p
+
+    def __call__(self, img: Image.Image) -> Image.Image:
+        if random.random() >= self.p:
+            return img
+        quality = random.randint(*self.quality_range)
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=quality)
+        buf.seek(0)
+        return Image.open(buf).convert("RGB")
+
+
 class ImageTransform:
-    def __init__(self, size: int = 384, augment: bool = True):
+    def __init__(self, size: int = 384, augment: bool = True,
+                 jpeg_aug: bool = True, blur_aug: bool = True):
         self.size = size
         self.augment = augment
 
@@ -21,17 +45,25 @@ class ImageTransform:
         )
 
         if augment:
-            self.transform = transforms.Compose([
+            aug_ops = [
                 transforms.Resize(size + 16),
                 transforms.RandomResizedCrop(size, scale=(0.85, 1.0), ratio=(0.9, 1.1)),
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.RandomRotation(degrees=10, fill=128),
                 transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.02),
                 transforms.RandomAdjustSharpness(sharpness_factor=2, p=0.1),
+            ]
+            if jpeg_aug:
+                aug_ops.append(RandomJPEGCompression(quality_range=(30, 95), p=0.5))
+            if blur_aug:
+                aug_ops.append(transforms.RandomApply(
+                    [transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))], p=0.2))
+            aug_ops += [
                 transforms.ToTensor(),
                 transforms.RandomErasing(p=0.1, scale=(0.02, 0.1), ratio=(0.3, 3.3)),
                 self.normalize,
-            ])
+            ]
+            self.transform = transforms.Compose(aug_ops)
         else:
             self.transform = transforms.Compose([
                 transforms.Resize(size + 16),
@@ -317,3 +349,110 @@ def get_weighted_sampler(dataset: AIDetectionDataset) -> WeightedRandomSampler:
     weights = 1.0 / class_counts
     sample_weights = [weights[l] for l in labels]
     return WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
+
+
+def create_split_dataloaders(
+    root_dir: str,
+    metadata_paths: List[str],
+    batch_size: int = 32,
+    num_workers: int = 4,
+    size: int = 384,
+    val_split: float = 0.10,
+    test_split: float = 0.10,
+    seed: int = 42,
+    use_weighted_sampler: bool = True,
+    split_index_path: Optional[str] = None,
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Stratified train/val/test dataloaders with persisted split indices.
+
+    If `split_index_path` exists, the saved indices are reused verbatim so
+    every model (MFFT variants, baselines, ablations) evaluates on the
+    identical test set. Otherwise the split is created, then saved there.
+
+    Class imbalance is handled with a WeightedRandomSampler on the train
+    loader (keeps all real images, oversamples the minority class) instead
+    of undersampling, unless `use_weighted_sampler=False`.
+    """
+    from sklearn.model_selection import train_test_split
+
+    full_dataset = AIDetectionDataset(
+        root_dir=root_dir,
+        metadata_paths=metadata_paths,
+        transform=None,
+        is_train=True,
+        size=size,
+        undersample=False,
+    )
+    labels = [s[1] for s in full_dataset.samples]
+    indices = list(range(len(full_dataset)))
+
+    if split_index_path and Path(split_index_path).exists():
+        with open(split_index_path) as f:
+            saved = json.load(f)
+        if saved.get("n_samples") != len(full_dataset):
+            raise ValueError(
+                f"Saved split at {split_index_path} was built for "
+                f"{saved.get('n_samples')} samples but dataset has "
+                f"{len(full_dataset)}. Delete the file to regenerate."
+            )
+        train_idx = saved["train"]
+        val_idx = saved["val"]
+        test_idx = saved["test"]
+        print(f"Reusing saved split from {split_index_path}")
+    else:
+        holdout = val_split + test_split
+        train_idx, rest_idx = train_test_split(
+            indices, test_size=holdout, stratify=labels, random_state=seed,
+        )
+        rest_labels = [labels[i] for i in rest_idx]
+        val_idx, test_idx = train_test_split(
+            rest_idx,
+            test_size=test_split / holdout,
+            stratify=rest_labels,
+            random_state=seed,
+        )
+        if split_index_path:
+            Path(split_index_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(split_index_path, "w") as f:
+                json.dump({
+                    "seed": seed,
+                    "n_samples": len(full_dataset),
+                    "val_split": val_split,
+                    "test_split": test_split,
+                    "train": list(map(int, train_idx)),
+                    "val": list(map(int, val_idx)),
+                    "test": list(map(int, test_idx)),
+                }, f)
+            print(f"Saved split indices to {split_index_path}")
+
+    def _subset(idx_list, augment):
+        ds = AIDetectionDataset(
+            root_dir=root_dir, metadata_paths=[],
+            transform=ImageTransform(size=size, augment=augment),
+            is_train=augment, size=size, undersample=False,
+        )
+        ds.samples = [full_dataset.samples[i] for i in idx_list]
+        return ds
+
+    train_dataset = _subset(train_idx, augment=True)
+    val_dataset = _subset(val_idx, augment=False)
+    test_dataset = _subset(test_idx, augment=False)
+
+    print(f"\nTrain: {len(train_dataset)}  Val: {len(val_dataset)}  Test: {len(test_dataset)}")
+
+    sampler = get_weighted_sampler(train_dataset) if use_weighted_sampler else None
+    train_loader = DataLoader(
+        train_dataset, batch_size=batch_size,
+        sampler=sampler, shuffle=(sampler is None),
+        num_workers=num_workers, pin_memory=True, drop_last=True,
+    )
+    val_loader = DataLoader(
+        val_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+    )
+    test_loader = DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=True,
+    )
+    return train_loader, val_loader, test_loader
