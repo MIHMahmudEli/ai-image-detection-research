@@ -1,0 +1,4 @@
+model,params,best_val_acc,best_epoch,test_accuracy,test_precision,test_recall,test_f1,test_auc
+SimpleCNN,422530,56.67,1,65.0,69.57,53.33,60.38,0.7789
+ResNet-18,11177538,71.67,1,78.33,79.31,76.67,77.97,0.8556
+FreqDetect,14658,50.0,1,50.0,50.0,100.0,66.67,0.4744

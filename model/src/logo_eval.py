@@ -41,8 +41,9 @@ FAKE_GENERATORS = [
 
 
 def _load_manifest(manifest_csv: str) -> pd.DataFrame:
-    df = pd.read_csv(manifest_csv, dtype=str, low_memory=False)
     required = {"filename", "label", "generator"}
+    df = pd.read_csv(manifest_csv, dtype=str, low_memory=False,
+                     usecols=lambda c: c in required)
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Manifest {manifest_csv} missing columns: {missing}")
@@ -137,7 +138,7 @@ def evaluate_per_generator(
             batch, labels = [], []
 
         for _, r in gdf.iterrows():
-            p = root / str(r["filename"])
+            p = root / str(r["filename"]).replace("\\", "/")
             if not p.exists():
                 continue
             try:

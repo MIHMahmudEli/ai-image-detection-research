@@ -1,0 +1,5 @@
+Configuration,Table,Params,Best Val Acc (%),Test Acc (%)
+Spatial-only (no bands),4,1401794,50.0,50.0
+All bands (max),4,1401794,50.0,50.0
+"All bands (cross-attn, no FGA)",4,1548482,50.0,50.0
+MFFT + all upgrades,6,4632242,73.33,73.33

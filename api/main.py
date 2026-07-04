@@ -39,14 +39,29 @@ model_server: Optional[ModelServer] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global model_server
+    import os
     checkpoint_dir = Path(__file__).parent.parent / "model" / "checkpoints"
-    model_path = None
-    for candidate in ["best_mfft_base.pt", "mfft_base_final.pt", "best.pt"]:
-        p = checkpoint_dir / candidate
-        if p.exists():
-            model_path = str(p)
-            break
-    model_server = ModelServer(model_path)
+    variant = os.environ.get("MFFT_VARIANT", "base")
+    env_ckpt = os.environ.get("MFFT_CHECKPOINT")
+    candidates = ([env_ckpt] if env_ckpt else []) + [
+        # written by the train notebooks (full-scale run)
+        str(checkpoint_dir / f"{variant}_model" / f"best_mfft_{variant}.pt"),
+        # written by the verification / pilot notebooks
+        str(checkpoint_dir / "verify" / f"{variant}_model" / "best.pt"),
+        str(checkpoint_dir / "test" / f"{variant}_model" / "best.pt"),
+        # legacy locations
+        str(checkpoint_dir / f"best_mfft_{variant}.pt"),
+        str(checkpoint_dir / "best.pt"),
+    ]
+    model_path = next((c for c in candidates if c and Path(c).exists()), None)
+    if model_path is None and os.environ.get("MFFT_ALLOW_RANDOM") != "1":
+        raise RuntimeError(
+            "No MFFT checkpoint found - refusing to serve random predictions. "
+            "Train the model first (see DGX_RUN_GUIDE.md), or set "
+            "MFFT_CHECKPOINT=/path/to/ckpt, or set MFFT_ALLOW_RANDOM=1 "
+            "for development only."
+        )
+    model_server = ModelServer(model_path, variant=variant)
     yield
     model_server = None
 

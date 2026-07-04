@@ -1,0 +1,23 @@
+{
+  "name": "upgrade_combined",
+  "label": "MFFT + all upgrades",
+  "table": 6,
+  "params": 4632242,
+  "final_train_acc": 74.38,
+  "best_val_acc": 73.33,
+  "test_acc": 73.33,
+  "history": {
+    "train_loss": [
+      0.5841
+    ],
+    "val_loss": [
+      0.6135
+    ],
+    "train_acc": [
+      74.375
+    ],
+    "val_acc": [
+      73.3333
+    ]
+  }
+}

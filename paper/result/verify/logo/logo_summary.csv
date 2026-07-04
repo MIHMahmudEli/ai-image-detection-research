@@ -1,0 +1,2 @@
+held_out,epochs,best_val_acc,heldout_fake_acc,unseen_real_acc,balanced_acc,auc
+BigGAN,1,50.0,0.0,100.0,50.0,0.8738

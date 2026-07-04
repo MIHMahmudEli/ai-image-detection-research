@@ -149,7 +149,14 @@ class AIDetectionDataset(Dataset):
                         self.samples.append((str(img_path), label))
 
     def _resolve_image_dirs(self, metadata_path: Path, df: pd.DataFrame) -> List[Path]:
+        # find the nearest ancestor that has an images/ sibling, so manifests
+        # in subfolders (e.g. dataset/metadata/logo/) resolve too
         base = metadata_path.parent.parent / "images"
+        if not base.exists():
+            for parent in metadata_path.resolve().parents:
+                if (parent / "images").exists():
+                    base = parent / "images"
+                    break
         candidates = [
             base,  # new layout: filenames are relative paths from images root
             base / "real",
@@ -171,7 +178,9 @@ class AIDetectionDataset(Dataset):
 
     def _resolve_image_path(self, row: pd.Series, image_dirs: List[Path]) -> Optional[Path]:
         if 'filename' in row and pd.notna(row['filename']):
-            fn = str(row['filename'])
+            # manifests store Windows-style separators; normalize so the
+            # same manifest resolves on Linux (DGX) too
+            fn = str(row['filename']).replace('\\', '/')
             if '/' in fn or '\\' in fn:
                 p = image_dirs[0] / fn
                 if p.exists():
@@ -362,6 +371,7 @@ def create_split_dataloaders(
     seed: int = 42,
     use_weighted_sampler: bool = True,
     split_index_path: Optional[str] = None,
+    max_samples: Optional[int] = None,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Stratified train/val/test dataloaders with persisted split indices.
@@ -373,6 +383,9 @@ def create_split_dataloaders(
     Class imbalance is handled with a WeightedRandomSampler on the train
     loader (keeps all real images, oversamples the minority class) instead
     of undersampling, unless `use_weighted_sampler=False`.
+
+    `max_samples` draws a seeded, class-balanced subset before splitting
+    (used by the notebooks' smoke-verification mode).
     """
     from sklearn.model_selection import train_test_split
 
@@ -384,6 +397,27 @@ def create_split_dataloaders(
         size=size,
         undersample=False,
     )
+
+    if max_samples is not None and len(full_dataset.samples) > max_samples:
+        rng = random.Random(seed)
+        by_class: Dict[int, list] = {0: [], 1: []}
+        for s in full_dataset.samples:
+            by_class[s[1]].append(s)
+        per_class = max_samples // 2
+        subset = []
+        for lbl, items in by_class.items():
+            rng.shuffle(items)
+            subset.extend(items[:per_class])
+        rng.shuffle(subset)
+        full_dataset.samples = subset
+        print(f"max_samples: reduced to {len(subset)} balanced samples")
+
+    if len(full_dataset.samples) == 0:
+        raise RuntimeError(
+            f"No samples resolved from {metadata_paths}. Check that the "
+            "manifest's filenames exist under the dataset images directory."
+        )
+
     labels = [s[1] for s in full_dataset.samples]
     indices = list(range(len(full_dataset)))
 

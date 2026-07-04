@@ -1,50 +1,43 @@
-# Run Sequence — MFFT Training Pipeline
+# Run Sequence
 
-## Phase 1: Test (Pipeline Validation)
-Run these first to verify everything works (5K subset, 1 epoch each):
+> **This document is superseded by [`DGX_RUN_GUIDE.md`](DGX_RUN_GUIDE.md)** —
+> use that for the full-scale training procedure, notebook order, LOGO
+> protocol, and local verification instructions.
 
-| Order | Notebook | Purpose |
-|-------|----------|---------|
-| 1 | `model/test_model/mfft_smoke.ipynb` | Quickest sanity check (tiny variant) |
-| 2 | `model/test_model/mfft_tiny.ipynb` | Validate tiny pipeline |
-| 3 | `model/test_model/mfft_base.ipynb` | Validate base pipeline |
-| 4 | `model/test_model/mfft_large.ipynb` | Validate large pipeline |
-| 5 | `model/test_model/baselines.ipynb` | Validate all 10 baselines |
-| 6 | `model/test_model/ablation.ipynb` | Validate 9 ablation configs |
+## Output tree (current layout)
 
-## Phase 2: Full Training (2.7M images, 20 epochs each)
+| Location | Contents |
+|---|---|
+| `paper/result/test/` | Pilot results (frozen — used by the pilot draft) |
+| `paper/result/verify/` | Local smoke-verification outputs (`model/test_model_verify/`) |
+| `paper/result/full_scale/` | DGX outputs: train notebooks, `paper_evals`, `logo` |
+| `model/checkpoints/{variant}_model/` | Full-scale checkpoints |
+| `model/checkpoints/verify/` | Verification checkpoints |
+| `model/checkpoints/logo/<gen>/` | LOGO per-generator checkpoints |
 
-| Order | Notebook | Outputs |
-|-------|----------|---------|
-| 1 | `model/train_mfft_tiny.ipynb` | `model/checkpoints/tiny_model/` |
-| 2 | `model/train_mfft_base.ipynb` | `model/checkpoints/base_model/` |
-| 3 | `model/train_mfft_large.ipynb` | `model/checkpoints/large_model/` |
-| 4 | `model/train_baselines.ipynb` | `model/checkpoints/{model}/` + `paper/results/{model}/` |
-| 5 | `model/train_ablation_study.ipynb` | `paper/results/ablation/` |
+## Notebook order (details in DGX_RUN_GUIDE.md)
 
-## Phase 3: Paper Outputs
-
-Generate figures and tables for each variant:
-
-```bash
-python model/generate_paper_outputs.py --variant tiny  --checkpoint model/checkpoints/tiny_model/best.pt
-python model/generate_paper_outputs.py --variant base  --checkpoint model/checkpoints/base_model/best.pt
-python model/generate_paper_outputs.py --variant large --checkpoint model/checkpoints/large_model/best.pt
+```
+prepare_training_manifest.py          (script, once, before everything)
+train_mfft_base.ipynb                 (creates the shared split)
+train_baselines.ipynb
+train_mfft_tiny.ipynb
+train_mfft_large.ipynb
+train_ablation_study.ipynb
+paper_evals.ipynb
+train_logo.ipynb
 ```
 
-Then fill `[TBD]` values in `paper/manuscript.md`.
+## Local verification (before requesting GPU time)
 
-## Phase 4: API Deployment
+Run everything in `model/test_model_verify/` on a CPU machine — smoke mode
+engages automatically and writes to the quarantined `verify` locations.
+
+## API deployment (after training)
 
 ```bash
 docker build -f Dockerfile.api -t mfft-api .
 docker run -p 8000:8000 mfft-api
+# refuses to start without a checkpoint; override with MFFT_CHECKPOINT=/path
+# or MFFT_ALLOW_RANDOM=1 (development only)
 ```
-
-## Notes
-
-- Test notebooks output to `paper/result/test/` (isolated from production results)
-- Production outputs go to `paper/results/` (no 's' in 'result')
-- Each full training takes ~4-8 hours per MFFT variant on a single GPU
-- Baselines notebook trains all 10 models sequentially (~24+ hours)
-- Check `model/checkpoints/` for trained weights after each run

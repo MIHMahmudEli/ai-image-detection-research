@@ -1,0 +1,11 @@
+{
+  "model": "ResNet-18",
+  "params": 11177538,
+  "best_val_acc": 71.67,
+  "best_epoch": 1,
+  "test_accuracy": 78.33,
+  "test_precision": 79.31,
+  "test_recall": 76.67,
+  "test_f1": 77.97,
+  "test_auc": 0.8556
+}

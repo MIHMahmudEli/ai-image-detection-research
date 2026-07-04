@@ -1,0 +1,94 @@
+[
+  {
+    "name": "spatial_only",
+    "label": "Spatial-only (no bands)",
+    "table": 4,
+    "params": 1401794,
+    "final_train_acc": 63.75,
+    "best_val_acc": 50.0,
+    "test_acc": 50.0,
+    "history": {
+      "train_loss": [
+        0.6601
+      ],
+      "val_loss": [
+        0.924
+      ],
+      "train_acc": [
+        63.75
+      ],
+      "val_acc": [
+        50.0
+      ]
+    }
+  },
+  {
+    "name": "fusion_max",
+    "label": "All bands (max)",
+    "table": 4,
+    "params": 1401794,
+    "final_train_acc": 68.54,
+    "best_val_acc": 50.0,
+    "test_acc": 50.0,
+    "history": {
+      "train_loss": [
+        0.6549
+      ],
+      "val_loss": [
+        0.8028
+      ],
+      "train_acc": [
+        68.5417
+      ],
+      "val_acc": [
+        50.0
+      ]
+    }
+  },
+  {
+    "name": "no_fga",
+    "label": "All bands (cross-attn, no FGA)",
+    "table": 4,
+    "params": 1548482,
+    "final_train_acc": 69.58,
+    "best_val_acc": 50.0,
+    "test_acc": 50.0,
+    "history": {
+      "train_loss": [
+        0.6172
+      ],
+      "val_loss": [
+        0.9781
+      ],
+      "train_acc": [
+        69.5833
+      ],
+      "val_acc": [
+        50.0
+      ]
+    }
+  },
+  {
+    "name": "upgrade_combined",
+    "label": "MFFT + all upgrades",
+    "table": 6,
+    "params": 4632242,
+    "final_train_acc": 74.38,
+    "best_val_acc": 73.33,
+    "test_acc": 73.33,
+    "history": {
+      "train_loss": [
+        0.5841
+      ],
+      "val_loss": [
+        0.6135
+      ],
+      "train_acc": [
+        74.375
+      ],
+      "val_acc": [
+        73.3333
+      ]
+    }
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "name": "fusion_max",
+  "label": "All bands (max)",
+  "table": 4,
+  "params": 1401794,
+  "final_train_acc": 68.54,
+  "best_val_acc": 50.0,
+  "test_acc": 50.0,
+  "history": {
+    "train_loss": [
+      0.6549
+    ],
+    "val_loss": [
+      0.8028
+    ],
+    "train_acc": [
+      68.5417
+    ],
+    "val_acc": [
+      50.0
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+Metric,Value
+Brier Score,0.3585
+Ece,0.2685
+Mean Confidence Correct,0.826732337474823
+Mean Confidence Incorrect,0.8287211060523987
