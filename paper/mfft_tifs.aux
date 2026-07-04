@@ -1,0 +1,170 @@
+\relax 
+\citation{betker2023}
+\citation{midjourney2024}
+\citation{rombach2022}
+\citation{pew2025}
+\citation{agarwal2024}
+\citation{reuters2024}
+\citation{nist2024}
+\citation{guarnera2022}
+\citation{wang2020,chollet2017}
+\citation{guarnera2022}
+\citation{boroumand2020}
+\citation{bondi2019}
+\citation{cozzolino2019}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {I-A}}Current Detection Approaches}{1}{}\protected@file@percent }
+\citation{frank2020,durall2021,zhang2023}
+\citation{goodfellow2014}
+\citation{karras2019}
+\citation{karras2018}
+\citation{zhang2022}
+\citation{ho2020,rombach2022}
+\citation{wolter2024}
+\citation{wolter2024}
+\citation{betker2023}
+\citation{dravida2023}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {I-B}}The Case for Frequency-Domain Analysis}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {I-C}}Limitations of Current Work}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {I-D}}Our Contributions}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {I-E}}Research Questions}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {II}Related Work}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Generative AI Models}{2}{}\protected@file@percent }
+\citation{wolter2024}
+\citation{wang2020}
+\citation{tan2019}
+\citation{chollet2017}
+\citation{guarnera2022}
+\citation{cozzolino2023}
+\citation{touvron2021}
+\citation{liu2021}
+\citation{radford2021}
+\citation{frank2020}
+\citation{durall2021}
+\citation{zhang2023}
+\citation{zhang2025}
+\citation{chivaran2025}
+\citation{noureldin2026}
+\citation{polamarasetti2026}
+\citation{tan2024,nie2026}
+\citation{frank2020}
+\citation{zhang2025}
+\citation{chivaran2025}
+\citation{noureldin2026}
+\citation{polamarasetti2026}
+\citation{selvaraju2017}
+\citation{sundararajan2017}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}AI-Generated Image Detection}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Multi-Modal and Fusion Approaches}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-D}}Comparison with Contemporary Frequency-Based Methods}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-E}}Explainable AI for Image Forensics}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}Method}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Overview}{4}{}\protected@file@percent }
+\newlabel{eq:pipeline}{{1}{4}{}{equation.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Frequency Decomposition}{4}{}\protected@file@percent }
+\newlabel{eq:dft}{{2}{4}{}{equation.2}{}}
+\newlabel{eq:mask}{{3}{4}{}{equation.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Per-Band Feature Extraction}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Cross-Attention Fusion}{4}{}\protected@file@percent }
+\newlabel{eq:qkv}{{4}{4}{}{equation.4}{}}
+\newlabel{eq:attention}{{5}{4}{}{equation.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Frequency-Guided Attention}{4}{}\protected@file@percent }
+\newlabel{eq:fga}{{6}{5}{}{equation.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-F}}Classification Head and Training Objective}{5}{}\protected@file@percent }
+\newlabel{eq:loss}{{7}{5}{}{equation.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-G}}Data Preprocessing and Augmentation}{5}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces MFFT Model Variants}}{5}{}\protected@file@percent }
+\newlabel{tab:variants}{{I}{5}{}{table.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-H}}Implementation Details}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Experimental Setup}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Dataset}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Model Variants}{5}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Detection Performance Comparison (preliminary, test pipeline)}}{6}{}\protected@file@percent }
+\newlabel{tab:main}{{II}{6}{}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Baselines}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Evaluation Metrics}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-E}}Ablation Study Design}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}Results}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Main Results}{6}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Ablation of Frequency Components (preliminary)}}{6}{}\protected@file@percent }
+\newlabel{tab:ablation}{{III}{6}{}{table.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Ablation of Number of Frequency Bands (preliminary)}}{6}{}\protected@file@percent }
+\newlabel{tab:bands}{{IV}{6}{}{table.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Ablation Studies}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-C}}Per-Generator Analysis}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-D}}Error Analysis}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-E}}Training Dynamics and Convergence}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-F}}Per-Category Analysis}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-G}}Computational Efficiency}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-A}}Why Multi-Frequency Fusion Works}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-B}}Generalization Across Generators}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-C}}Analysis of Band Configuration}{8}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-D}}Model Variant Analysis}{8}{}\protected@file@percent }
+\citation{zhang2025}
+\citation{noureldin2026}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-E}}Frequency-Guided Attention Analysis}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-F}}Explainability and Interpretability}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-G}}Practical Implications}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-H}}Comparison with Frequency-Domain Baselines}{9}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-I}}Ethical Considerations}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-J}}Broader Societal Impact}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VI-K}}Limitations}{10}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Future Work}{10}{}\protected@file@percent }
+\bibcite{betker2023}{1}
+\bibcite{midjourney2024}{2}
+\bibcite{rombach2022}{3}
+\bibcite{pew2025}{4}
+\bibcite{agarwal2024}{5}
+\bibcite{reuters2024}{6}
+\bibcite{nist2024}{7}
+\bibcite{wang2020}{8}
+\bibcite{chollet2017}{9}
+\bibcite{guarnera2022}{10}
+\bibcite{boroumand2020}{11}
+\bibcite{bondi2019}{12}
+\bibcite{cozzolino2019}{13}
+\bibcite{frank2020}{14}
+\bibcite{durall2021}{15}
+\bibcite{zhang2023}{16}
+\bibcite{goodfellow2014}{17}
+\bibcite{karras2019}{18}
+\bibcite{karras2018}{19}
+\bibcite{ho2020}{20}
+\bibcite{zhang2022}{21}
+\bibcite{wolter2024}{22}
+\bibcite{dravida2023}{23}
+\bibcite{tan2019}{24}
+\bibcite{cozzolino2023}{25}
+\bibcite{touvron2021}{26}
+\bibcite{liu2021}{27}
+\bibcite{radford2021}{28}
+\bibcite{zhang2025}{29}
+\bibcite{chivaran2025}{30}
+\bibcite{noureldin2026}{31}
+\@writefile{toc}{\contentsline {section}{\numberline {VIII}Conclusion}{11}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{11}{}\protected@file@percent }
+\bibcite{polamarasetti2026}{32}
+\bibcite{selvaraju2017}{33}
+\bibcite{sundararajan2017}{34}
+\bibcite{tan2024}{35}
+\bibcite{nie2026}{36}
+\citation{frank2020}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  A: Frequency Decomposition Module}{12}{}\protected@file@percent }
+\newlabel{app:decomp}{{A}{12}{}{section.Appendix.A}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  B: Frequency Feature Extractor Architecture}{12}{}\protected@file@percent }
+\newlabel{app:extractor}{{B}{12}{}{section.Appendix.B}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  C: Cross-Attention Fusion Parameters}{12}{}\protected@file@percent }
+\newlabel{app:attention}{{C}{12}{}{section.Appendix.C}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  D: Classification Head Architecture}{12}{}\protected@file@percent }
+\newlabel{app:head}{{D}{12}{}{section.Appendix.D}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  E: Dataset Composition}{12}{}\protected@file@percent }
+\newlabel{app:dataset}{{E}{12}{}{section.Appendix.E}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  F: Training Hyperparameters}{12}{}\protected@file@percent }
+\newlabel{app:hyperparams}{{F}{12}{}{section.Appendix.F}{}}
+\@writefile{toc}{\contentsline {section}{Appendix\nobreakspace  G: Baseline Architectures}{12}{}\protected@file@percent }
+\newlabel{app:baselines}{{G}{12}{}{section.Appendix.G}{}}
+\@writefile{toc}{\contentsline {section}{Biographies}{13}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Mahmudul Hasan}{13}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{Co-Author Name}{13}{}\protected@file@percent }
+\gdef \@abspage@last{13}
