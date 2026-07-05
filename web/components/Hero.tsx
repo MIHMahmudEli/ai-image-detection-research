@@ -23,13 +23,13 @@ export default function Hero() {
         }}
       />
 
-      {/* backdrop glows — dark (midnight) */}
+      {/* backdrop glows — dark (candle-lit vintage: warm amber + deep blue) */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 hidden dark:block"
         style={{
           background:
-            "radial-gradient(600px 300px at 20% 0%, rgba(37,99,235,0.4), transparent 70%), radial-gradient(700px 350px at 80% 100%, rgba(79,70,229,0.3), transparent 70%), radial-gradient(400px 400px at 50% 50%, rgba(16,185,129,0.08), transparent 70%)",
+            "radial-gradient(600px 300px at 20% 0%, rgba(37,99,235,0.22), transparent 70%), radial-gradient(700px 350px at 80% 100%, rgba(196,148,72,0.16), transparent 70%), radial-gradient(400px 400px at 50% 50%, rgba(140,100,50,0.08), transparent 70%)",
         }}
       />
       <div
@@ -50,8 +50,10 @@ export default function Hero() {
 
         <h1 className="mx-auto max-w-3xl text-4xl font-bold leading-tight tracking-tight md:text-6xl">
           Know what&apos;s real.
+          {/* pb keeps the gradient's paint box tall enough for descenders (the
+              "g" in "images" was clipped by bg-clip-text + leading-tight) */}
           <span
-            className="block animate-shimmer bg-gradient-to-r from-blue-800 via-teal-700 to-indigo-800 bg-clip-text text-transparent dark:from-blue-400 dark:via-teal-300 dark:to-indigo-400"
+            className="-mb-2 block animate-shimmer bg-gradient-to-r from-blue-800 via-teal-700 to-indigo-800 bg-clip-text pb-2 text-transparent dark:from-blue-400 dark:via-teal-300 dark:to-indigo-400"
             style={{ backgroundSize: "200% 200%" }}
           >
             Detect AI-generated images.

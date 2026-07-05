@@ -15,6 +15,21 @@ module.exports = {
           200: "#EDE5D4",
           300: "#E0D5BE",
         },
+        // vintage classic dark: slate remapped to warm espresso/aged-leather
+        // neutrals so every dark: surface matches the cream light mode
+        slate: {
+          50: "#F5EFE3",
+          100: "#ECE4D4",
+          200: "#DCD1BB",
+          300: "#C4B69C",
+          400: "#A2937A",
+          500: "#80725C",
+          600: "#5F5343",
+          700: "#463D31",
+          800: "#332C23",
+          900: "#251F18",
+          950: "#17130E",
+        },
         primary: {
           50: "#eff6ff",
           100: "#dbeafe",

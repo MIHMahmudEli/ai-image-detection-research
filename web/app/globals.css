@@ -19,20 +19,21 @@
     --card-foreground: 30 15% 12%;
   }
 
+  /* vintage classic dark: warm espresso neutrals mirroring the cream light mode */
   .dark {
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 25% 12%;
-    --secondary-foreground: 220 20% 90%;
+    --secondary: 32 18% 12%;
+    --secondary-foreground: 38 30% 88%;
     --accent: 160 60% 45%;
     --accent-foreground: 0 0% 100%;
-    --muted: 222 20% 16%;
-    --muted-foreground: 220 10% 65%;
+    --muted: 32 15% 16%;
+    --muted-foreground: 35 14% 62%;
     --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 222 20% 20%;
-    --card: 222 30% 8%;
-    --card-foreground: 220 20% 95%;
+    --border: 32 15% 19%;
+    --card: 32 22% 8%;
+    --card-foreground: 38 30% 92%;
   }
 
   * {
