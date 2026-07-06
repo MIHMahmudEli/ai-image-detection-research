@@ -71,6 +71,22 @@ def main():
     df = pd.read_csv(args.manifest, dtype=str, low_memory=False)
     print(f"  {len(df):,} rows")
 
+    # --- 0. drop the duplicated BigGAN source ---
+    # The same GenImage BigGAN images exist on disk twice: source 'biggan'
+    # (BigGAN/imagenet_ai_0419_biggan/...) and 'genimage_biggan'
+    # (genimage_ai/BigGAN/...). Neither copy carries an MD5, so the MD5
+    # dedupe below cannot catch them; matched by basename instead.
+    if {"biggan", "genimage_biggan"} <= set(df["source"].dropna().unique()):
+        gi_names = set(
+            df.loc[df["source"] == "genimage_biggan", "filename"]
+            .str.replace("\\", "/").str.rsplit("/", n=1).str[-1])
+        bg = df[df["source"] == "biggan"]
+        dup_mask = (bg["filename"].str.replace("\\", "/")
+                    .str.rsplit("/", n=1).str[-1].isin(gi_names))
+        df = df.drop(index=bg[dup_mask].index)
+        print(f"  Dropped {int(dup_mask.sum()):,} 'biggan' rows duplicated "
+              f"in 'genimage_biggan'")
+
     # --- 1. cap Places365 ---
     if args.cap_places365 > 0:
         places = df[df["source"] == "places365"]

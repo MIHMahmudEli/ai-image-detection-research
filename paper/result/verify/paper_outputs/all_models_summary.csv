@@ -1,0 +1,14 @@
+model,accuracy,test_accuracy,precision,test_precision,recall,test_recall,f1,test_f1,auc_roc,test_auc,params,_source,best_val_acc,best_epoch,checkpoint
+CLIP,,70.8,,65.76,,86.8,,74.83,,0.7964,87851266,baselines_model\clip,77.2,1.0,
+DeiT-S,,65.6,,71.91,,51.2,,59.81,,0.7049,21667972,baselines_model\deit_s,64.6,1.0,
+EfficientNet-B0,,94.4,,95.49,,93.2,,94.33,,0.9877,4010110,baselines_model\efficientnet_b0,94.6,1.0,
+FreqDetect,,50.6,,50.75,,40.8,,45.23,,0.4856,14658,baselines_model\freqdetect,51.6,1.0,
+LightViT,,62.6,,77.39,,35.6,,48.77,,0.6919,1965890,baselines_model\lightvit,63.8,1.0,
+ResNet-18,,84.0,,85.42,,82.0,,83.67,,0.9277,11177538,baselines_model\resnet_18,83.6,1.0,
+ResNet-50,,93.0,,91.19,,95.2,,93.15,,0.9773,23512130,baselines_model\resnet_50,93.0,1.0,
+SimpleCNN,,74.2,,77.88,,67.6,,72.38,,0.8185,422530,baselines_model\simplecnn,76.2,1.0,
+Swin-T,,85.0,,95.81,,73.2,,82.99,,0.9675,27520892,baselines_model\swin_t,87.2,1.0,
+ViT-B/16,,88.2,,87.45,,89.2,,88.32,,0.9542,85800194,baselines_model\vit_b_16,89.0,1.0,
+MFFT-base,68.33,,58.97,,88.46,,70.77,,0.845,,1622690,paper_outputs\base_model,,,model\checkpoints\verify\base_model\best.pt
+MFFT-large,43.33,,43.33,,100.0,,60.47,,0.4321,,6301250,paper_outputs\large_model,,,model\checkpoints\verify\large_model\best.pt
+MFFT-tiny,81.67,,77.78,,80.77,,79.25,,0.8416,,372450,paper_outputs\tiny_model,,,model\checkpoints\verify\tiny_model\best.pt

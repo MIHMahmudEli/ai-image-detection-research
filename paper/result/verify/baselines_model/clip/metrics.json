@@ -1,0 +1,11 @@
+{
+  "model": "CLIP",
+  "params": 87851266,
+  "best_val_acc": 77.2,
+  "best_epoch": 1,
+  "test_accuracy": 70.8,
+  "test_precision": 65.76,
+  "test_recall": 86.8,
+  "test_f1": 74.83,
+  "test_auc": 0.7964
+}

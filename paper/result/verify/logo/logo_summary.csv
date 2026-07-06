@@ -1,2 +1,9 @@
 held_out,epochs,best_val_acc,heldout_fake_acc,unseen_real_acc,balanced_acc,auc
-BigGAN,1,50.0,0.0,100.0,50.0,0.8738
+BigGAN,1,78.21,50.4,98.4,74.4,0.8236
+Glide,1,83.41,86.0,89.6,87.8,0.9245
+Stable Diffusion,1,87.39,40.8,73.2,57.0,0.6413
+DALL-E3,1,85.54,44.3,84.81,64.56,0.7779
+Midjourney,1,81.12,50.0,100.0,75.0,0.6667
+Celeb-DF,1,76.82,97.6,67.6,82.6,0.9637
+FaceForensics,1,85.66,100.0,93.1,96.55,0.9979
+DFDC,1,87.55,100.0,85.71,92.85,1.0

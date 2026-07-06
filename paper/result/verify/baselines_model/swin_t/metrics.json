@@ -1,0 +1,11 @@
+{
+  "model": "Swin-T",
+  "params": 27520892,
+  "best_val_acc": 87.2,
+  "best_epoch": 1,
+  "test_accuracy": 85.0,
+  "test_precision": 95.81,
+  "test_recall": 73.2,
+  "test_f1": 82.99,
+  "test_auc": 0.9675
+}

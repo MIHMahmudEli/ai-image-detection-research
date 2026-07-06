@@ -1,0 +1,2 @@
+Epoch,Train Loss,Val Loss,Train Acc (%),Val Acc (%)
+1,0.6339,1.0377,70.62,50.0

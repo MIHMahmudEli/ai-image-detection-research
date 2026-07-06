@@ -1,0 +1,23 @@
+{
+  "name": "fusion_avg",
+  "label": "All bands (avg)",
+  "table": 4,
+  "params": 1401794,
+  "final_train_acc": 77.65,
+  "best_val_acc": 85.4,
+  "test_acc": 85.2,
+  "history": {
+    "train_loss": [
+      0.548
+    ],
+    "val_loss": [
+      0.4501
+    ],
+    "train_acc": [
+      77.65
+    ],
+    "val_acc": [
+      85.4
+    ]
+  }
+}

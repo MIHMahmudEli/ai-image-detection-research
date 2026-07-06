@@ -1,0 +1,10 @@
+{
+  "model": "MFFT-large",
+  "params": 6301250,
+  "accuracy": 43.33,
+  "precision": 43.33,
+  "recall": 100.0,
+  "f1": 60.47,
+  "auc_roc": 0.4321,
+  "checkpoint": "model\\checkpoints\\verify\\large_model\\best.pt"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "upgrade_pretrained",
+  "label": "MFFT + pretrained extractors",
+  "table": 6,
+  "params": 4631810,
+  "final_train_acc": 82.7,
+  "best_val_acc": 81.8,
+  "test_acc": 81.0,
+  "history": {
+    "train_loss": [
+      0.4652
+    ],
+    "val_loss": [
+      0.4881
+    ],
+    "train_acc": [
+      82.7
+    ],
+    "val_acc": [
+      81.8
+    ]
+  }
+}

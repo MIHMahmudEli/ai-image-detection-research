@@ -1,11 +1,11 @@
 {
   "model": "SimpleCNN",
   "params": 422530,
-  "best_val_acc": 56.67,
+  "best_val_acc": 76.2,
   "best_epoch": 1,
-  "test_accuracy": 65.0,
-  "test_precision": 69.57,
-  "test_recall": 53.33,
-  "test_f1": 60.38,
-  "test_auc": 0.7789
+  "test_accuracy": 74.2,
+  "test_precision": 77.88,
+  "test_recall": 67.6,
+  "test_f1": 72.38,
+  "test_auc": 0.8185
 }

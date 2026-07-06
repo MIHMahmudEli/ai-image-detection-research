@@ -1,0 +1,4 @@
+generator,n,accuracy
+FaceForensics,58,100.0
+real,58,93.1
+OVERALL_AUC,116,0.9979

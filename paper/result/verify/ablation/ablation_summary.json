@@ -4,21 +4,136 @@
     "label": "Spatial-only (no bands)",
     "table": 4,
     "params": 1401794,
-    "final_train_acc": 63.75,
-    "best_val_acc": 50.0,
-    "test_acc": 50.0,
+    "final_train_acc": 68.67,
+    "best_val_acc": 80.8,
+    "test_acc": 80.2,
     "history": {
       "train_loss": [
-        0.6601
+        0.6105
       ],
       "val_loss": [
-        0.924
+        0.5422
       ],
       "train_acc": [
-        63.75
+        68.675
       ],
       "val_acc": [
-        50.0
+        80.8
+      ]
+    }
+  },
+  {
+    "name": "band_low",
+    "label": "Low-frequency only",
+    "table": 4,
+    "params": 1401794,
+    "final_train_acc": 63.25,
+    "best_val_acc": 69.0,
+    "test_acc": 64.6,
+    "history": {
+      "train_loss": [
+        0.6534
+      ],
+      "val_loss": [
+        0.6199
+      ],
+      "train_acc": [
+        63.25
+      ],
+      "val_acc": [
+        69.0
+      ]
+    }
+  },
+  {
+    "name": "band_mid",
+    "label": "Mid-frequency only",
+    "table": 4,
+    "params": 1401794,
+    "final_train_acc": 74.58,
+    "best_val_acc": 69.6,
+    "test_acc": 62.4,
+    "history": {
+      "train_loss": [
+        0.5701
+      ],
+      "val_loss": [
+        0.6422
+      ],
+      "train_acc": [
+        74.575
+      ],
+      "val_acc": [
+        69.6
+      ]
+    }
+  },
+  {
+    "name": "band_high",
+    "label": "High-frequency only",
+    "table": 4,
+    "params": 1401794,
+    "final_train_acc": 76.92,
+    "best_val_acc": 81.0,
+    "test_acc": 80.0,
+    "history": {
+      "train_loss": [
+        0.5595
+      ],
+      "val_loss": [
+        0.4967
+      ],
+      "train_acc": [
+        76.925
+      ],
+      "val_acc": [
+        81.0
+      ]
+    }
+  },
+  {
+    "name": "fusion_concat",
+    "label": "All bands (concat)",
+    "table": 4,
+    "params": 958274,
+    "final_train_acc": 77.38,
+    "best_val_acc": 84.4,
+    "test_acc": 85.2,
+    "history": {
+      "train_loss": [
+        0.5559
+      ],
+      "val_loss": [
+        0.4485
+      ],
+      "train_acc": [
+        77.375
+      ],
+      "val_acc": [
+        84.4
+      ]
+    }
+  },
+  {
+    "name": "fusion_avg",
+    "label": "All bands (avg)",
+    "table": 4,
+    "params": 1401794,
+    "final_train_acc": 77.65,
+    "best_val_acc": 85.4,
+    "test_acc": 85.2,
+    "history": {
+      "train_loss": [
+        0.548
+      ],
+      "val_loss": [
+        0.4501
+      ],
+      "train_acc": [
+        77.65
+      ],
+      "val_acc": [
+        85.4
       ]
     }
   },
@@ -27,21 +142,21 @@
     "label": "All bands (max)",
     "table": 4,
     "params": 1401794,
-    "final_train_acc": 68.54,
-    "best_val_acc": 50.0,
-    "test_acc": 50.0,
+    "final_train_acc": 75.4,
+    "best_val_acc": 61.4,
+    "test_acc": 60.4,
     "history": {
       "train_loss": [
-        0.6549
+        0.5608
       ],
       "val_loss": [
-        0.8028
+        0.8391
       ],
       "train_acc": [
-        68.5417
+        75.4
       ],
       "val_acc": [
-        50.0
+        61.4
       ]
     }
   },
@@ -50,21 +165,136 @@
     "label": "All bands (cross-attn, no FGA)",
     "table": 4,
     "params": 1548482,
-    "final_train_acc": 69.58,
-    "best_val_acc": 50.0,
-    "test_acc": 50.0,
+    "final_train_acc": 76.98,
+    "best_val_acc": 83.0,
+    "test_acc": 83.6,
     "history": {
       "train_loss": [
-        0.6172
+        0.5563
       ],
       "val_loss": [
-        0.9781
+        0.5014
       ],
       "train_acc": [
-        69.5833
+        76.975
       ],
       "val_acc": [
-        50.0
+        83.0
+      ]
+    }
+  },
+  {
+    "name": "bands_2",
+    "label": "2 bands (low, high)",
+    "table": 5,
+    "params": 2508578,
+    "final_train_acc": 77.98,
+    "best_val_acc": 84.2,
+    "test_acc": 82.6,
+    "history": {
+      "train_loss": [
+        0.5513
+      ],
+      "val_loss": [
+        0.4489
+      ],
+      "train_acc": [
+        77.975
+      ],
+      "val_acc": [
+        84.2
+      ]
+    }
+  },
+  {
+    "name": "bands_4",
+    "label": "4 bands (low, low-mid, mid-high, high)",
+    "table": 5,
+    "params": 6301250,
+    "final_train_acc": 76.83,
+    "best_val_acc": 76.0,
+    "test_acc": 70.6,
+    "history": {
+      "train_loss": [
+        0.5357
+      ],
+      "val_loss": [
+        0.5592
+      ],
+      "train_acc": [
+        76.825
+      ],
+      "val_acc": [
+        76.0
+      ]
+    }
+  },
+  {
+    "name": "upgrade_pretrained",
+    "label": "MFFT + pretrained extractors",
+    "table": 6,
+    "params": 4631810,
+    "final_train_acc": 82.7,
+    "best_val_acc": 81.8,
+    "test_acc": 81.0,
+    "history": {
+      "train_loss": [
+        0.4652
+      ],
+      "val_loss": [
+        0.4881
+      ],
+      "train_acc": [
+        82.7
+      ],
+      "val_acc": [
+        81.8
+      ]
+    }
+  },
+  {
+    "name": "upgrade_npr",
+    "label": "MFFT + NPR high-band residual",
+    "table": 6,
+    "params": 1623554,
+    "final_train_acc": 77.65,
+    "best_val_acc": 78.6,
+    "test_acc": 77.8,
+    "history": {
+      "train_loss": [
+        0.5489
+      ],
+      "val_loss": [
+        0.666
+      ],
+      "train_acc": [
+        77.65
+      ],
+      "val_acc": [
+        78.6
+      ]
+    }
+  },
+  {
+    "name": "upgrade_soft",
+    "label": "MFFT + soft band masks",
+    "table": 6,
+    "params": 1622690,
+    "final_train_acc": 75.38,
+    "best_val_acc": 86.0,
+    "test_acc": 83.6,
+    "history": {
+      "train_loss": [
+        0.56
+      ],
+      "val_loss": [
+        0.4663
+      ],
+      "train_acc": [
+        75.375
+      ],
+      "val_acc": [
+        86.0
       ]
     }
   },
@@ -73,21 +303,21 @@
     "label": "MFFT + all upgrades",
     "table": 6,
     "params": 4632242,
-    "final_train_acc": 74.38,
-    "best_val_acc": 73.33,
-    "test_acc": 73.33,
+    "final_train_acc": 85.65,
+    "best_val_acc": 69.0,
+    "test_acc": 67.0,
     "history": {
       "train_loss": [
-        0.5841
+        0.4468
       ],
       "val_loss": [
-        0.6135
+        0.6187
       ],
       "train_acc": [
-        74.375
+        85.65
       ],
       "val_acc": [
-        73.3333
+        69.0
       ]
     }
   }

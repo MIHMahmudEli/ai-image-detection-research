@@ -3,21 +3,21 @@
   "label": "All bands (max)",
   "table": 4,
   "params": 1401794,
-  "final_train_acc": 68.54,
-  "best_val_acc": 50.0,
-  "test_acc": 50.0,
+  "final_train_acc": 75.4,
+  "best_val_acc": 61.4,
+  "test_acc": 60.4,
   "history": {
     "train_loss": [
-      0.6549
+      0.5608
     ],
     "val_loss": [
-      0.8028
+      0.8391
     ],
     "train_acc": [
-      68.5417
+      75.4
     ],
     "val_acc": [
-      50.0
+      61.4
     ]
   }
 }

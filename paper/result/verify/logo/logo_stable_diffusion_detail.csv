@@ -1,0 +1,4 @@
+generator,n,accuracy
+Stable Diffusion,250,40.8
+real,250,73.2
+OVERALL_AUC,500,0.6413

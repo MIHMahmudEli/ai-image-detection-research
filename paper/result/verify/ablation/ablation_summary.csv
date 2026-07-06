@@ -1,5 +1,15 @@
 Configuration,Table,Params,Best Val Acc (%),Test Acc (%)
-Spatial-only (no bands),4,1401794,50.0,50.0
-All bands (max),4,1401794,50.0,50.0
-"All bands (cross-attn, no FGA)",4,1548482,50.0,50.0
-MFFT + all upgrades,6,4632242,73.33,73.33
+Spatial-only (no bands),4,1401794,80.8,80.2
+Low-frequency only,4,1401794,69.0,64.6
+Mid-frequency only,4,1401794,69.6,62.4
+High-frequency only,4,1401794,81.0,80.0
+All bands (concat),4,958274,84.4,85.2
+All bands (avg),4,1401794,85.4,85.2
+All bands (max),4,1401794,61.4,60.4
+"All bands (cross-attn, no FGA)",4,1548482,83.0,83.6
+"2 bands (low, high)",5,2508578,84.2,82.6
+"4 bands (low, low-mid, mid-high, high)",5,6301250,76.0,70.6
+MFFT + pretrained extractors,6,4631810,81.8,81.0
+MFFT + NPR high-band residual,6,1623554,78.6,77.8
+MFFT + soft band masks,6,1622690,86.0,83.6
+MFFT + all upgrades,6,4632242,69.0,67.0

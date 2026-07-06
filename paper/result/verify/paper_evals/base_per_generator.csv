@@ -1,11 +1,11 @@
 generator,n,accuracy
-BigGAN,40,100.0
-Celeb-DF,40,100.0
-DALL-E3,40,100.0
-DFDC,40,100.0
+BigGAN,40,95.0
+Celeb-DF,40,95.0
+DALL-E3,40,57.5
+DFDC,7,100.0
 FaceForensics,40,100.0
-Glide,40,100.0
-Midjourney,40,100.0
-Stable Diffusion,40,100.0
-real,40,0.0
-OVERALL_AUC,360,0.439
+Glide,40,95.0
+Midjourney,6,50.0
+Stable Diffusion,40,52.5
+real,40,67.5
+OVERALL_AUC,293,0.8658

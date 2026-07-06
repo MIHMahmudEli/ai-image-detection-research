@@ -1,0 +1,5 @@
+Split,Total,Real,AI,Percentage
+Train,480,-,-,80.0%
+Validation,60,-,-,10.0%
+Test,60,-,-,10.0%
+Full Dataset,600,300,300,100%

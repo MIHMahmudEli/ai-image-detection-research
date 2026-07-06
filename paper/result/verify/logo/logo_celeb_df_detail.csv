@@ -1,0 +1,4 @@
+generator,n,accuracy
+Celeb-DF,250,97.6
+real,250,67.6
+OVERALL_AUC,500,0.9637

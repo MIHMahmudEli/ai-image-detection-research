@@ -1,11 +1,11 @@
 {
   "model": "FreqDetect",
   "params": 14658,
-  "best_val_acc": 50.0,
+  "best_val_acc": 51.6,
   "best_epoch": 1,
-  "test_accuracy": 50.0,
-  "test_precision": 50.0,
-  "test_recall": 100.0,
-  "test_f1": 66.67,
-  "test_auc": 0.4744
+  "test_accuracy": 50.6,
+  "test_precision": 50.75,
+  "test_recall": 40.8,
+  "test_f1": 45.23,
+  "test_auc": 0.4856
 }

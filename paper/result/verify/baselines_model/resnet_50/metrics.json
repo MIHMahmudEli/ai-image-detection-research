@@ -1,0 +1,11 @@
+{
+  "model": "ResNet-50",
+  "params": 23512130,
+  "best_val_acc": 93.0,
+  "best_epoch": 1,
+  "test_accuracy": 93.0,
+  "test_precision": 91.19,
+  "test_recall": 95.2,
+  "test_f1": 93.15,
+  "test_auc": 0.9773
+}

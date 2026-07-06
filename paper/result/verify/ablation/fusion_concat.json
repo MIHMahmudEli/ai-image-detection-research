@@ -1,0 +1,23 @@
+{
+  "name": "fusion_concat",
+  "label": "All bands (concat)",
+  "table": 4,
+  "params": 958274,
+  "final_train_acc": 77.38,
+  "best_val_acc": 84.4,
+  "test_acc": 85.2,
+  "history": {
+    "train_loss": [
+      0.5559
+    ],
+    "val_loss": [
+      0.4485
+    ],
+    "train_acc": [
+      77.375
+    ],
+    "val_acc": [
+      84.4
+    ]
+  }
+}

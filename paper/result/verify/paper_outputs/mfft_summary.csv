@@ -1,0 +1,4 @@
+model,params,accuracy,precision,recall,f1,auc_roc,checkpoint
+MFFT-tiny,372450,81.67,77.78,80.77,79.25,0.8416,model\checkpoints\verify\tiny_model\best.pt
+MFFT-base,1622690,68.33,58.97,88.46,70.77,0.845,model\checkpoints\verify\base_model\best.pt
+MFFT-large,6301250,43.33,43.33,100.0,60.47,0.4321,model\checkpoints\verify\large_model\best.pt

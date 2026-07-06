@@ -1,0 +1,4 @@
+generator,n,accuracy
+DALL-E3,79,44.3
+real,79,84.81
+OVERALL_AUC,158,0.7779

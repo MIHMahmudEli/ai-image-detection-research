@@ -1,0 +1,6 @@
+Property,Value
+Architecture,Multi-Frequency Fusion Transformer (MFFT)
+Variant,base
+Total Params,372450
+Image Size,224x224
+Checkpoint Size Mb,1.53

@@ -1,0 +1,10 @@
+{
+  "model": "MFFT-base",
+  "params": 1622690,
+  "accuracy": 68.33,
+  "precision": 58.97,
+  "recall": 88.46,
+  "f1": 70.77,
+  "auc_roc": 0.845,
+  "checkpoint": "model\\checkpoints\\verify\\base_model\\best.pt"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "band_mid",
+  "label": "Mid-frequency only",
+  "table": 4,
+  "params": 1401794,
+  "final_train_acc": 74.58,
+  "best_val_acc": 69.6,
+  "test_acc": 62.4,
+  "history": {
+    "train_loss": [
+      0.5701
+    ],
+    "val_loss": [
+      0.6422
+    ],
+    "train_acc": [
+      74.575
+    ],
+    "val_acc": [
+      69.6
+    ]
+  }
+}

@@ -1,2 +1,2 @@
 model_a,model_b,n01,n10,statistic,p_value,method
-base,tiny,3,6,3.0,0.5078125,exact-binomial
+base,tiny,42,53,1.0526315789473684,0.30490178817878544,chi2-corrected

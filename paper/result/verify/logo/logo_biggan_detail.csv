@@ -1,4 +1,4 @@
 generator,n,accuracy
-BigGAN,40,0.0
-real,40,100.0
-OVERALL_AUC,80,0.8738
+BigGAN,250,50.4
+real,250,98.4
+OVERALL_AUC,500,0.8236

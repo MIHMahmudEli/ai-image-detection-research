@@ -3,21 +3,21 @@
   "label": "All bands (cross-attn, no FGA)",
   "table": 4,
   "params": 1548482,
-  "final_train_acc": 69.58,
-  "best_val_acc": 50.0,
-  "test_acc": 50.0,
+  "final_train_acc": 76.98,
+  "best_val_acc": 83.0,
+  "test_acc": 83.6,
   "history": {
     "train_loss": [
-      0.6172
+      0.5563
     ],
     "val_loss": [
-      0.9781
+      0.5014
     ],
     "train_acc": [
-      69.5833
+      76.975
     ],
     "val_acc": [
-      50.0
+      83.0
     ]
   }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "band_low",
+  "label": "Low-frequency only",
+  "table": 4,
+  "params": 1401794,
+  "final_train_acc": 63.25,
+  "best_val_acc": 69.0,
+  "test_acc": 64.6,
+  "history": {
+    "train_loss": [
+      0.6534
+    ],
+    "val_loss": [
+      0.6199
+    ],
+    "train_acc": [
+      63.25
+    ],
+    "val_acc": [
+      69.0
+    ]
+  }
+}

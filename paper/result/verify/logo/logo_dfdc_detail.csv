@@ -1,0 +1,4 @@
+generator,n,accuracy
+DFDC,7,100.0
+real,7,85.71
+OVERALL_AUC,14,1.0

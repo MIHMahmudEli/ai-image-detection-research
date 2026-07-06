@@ -1,0 +1,23 @@
+{
+  "name": "upgrade_npr",
+  "label": "MFFT + NPR high-band residual",
+  "table": 6,
+  "params": 1623554,
+  "final_train_acc": 77.65,
+  "best_val_acc": 78.6,
+  "test_acc": 77.8,
+  "history": {
+    "train_loss": [
+      0.5489
+    ],
+    "val_loss": [
+      0.666
+    ],
+    "train_acc": [
+      77.65
+    ],
+    "val_acc": [
+      78.6
+    ]
+  }
+}

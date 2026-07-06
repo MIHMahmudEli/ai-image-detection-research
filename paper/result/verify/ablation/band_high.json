@@ -1,0 +1,23 @@
+{
+  "name": "band_high",
+  "label": "High-frequency only",
+  "table": 4,
+  "params": 1401794,
+  "final_train_acc": 76.92,
+  "best_val_acc": 81.0,
+  "test_acc": 80.0,
+  "history": {
+    "train_loss": [
+      0.5595
+    ],
+    "val_loss": [
+      0.4967
+    ],
+    "train_acc": [
+      76.925
+    ],
+    "val_acc": [
+      81.0
+    ]
+  }
+}

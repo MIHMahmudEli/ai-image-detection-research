@@ -1,0 +1,23 @@
+{
+  "name": "upgrade_soft",
+  "label": "MFFT + soft band masks",
+  "table": 6,
+  "params": 1622690,
+  "final_train_acc": 75.38,
+  "best_val_acc": 86.0,
+  "test_acc": 83.6,
+  "history": {
+    "train_loss": [
+      0.56
+    ],
+    "val_loss": [
+      0.4663
+    ],
+    "train_acc": [
+      75.375
+    ],
+    "val_acc": [
+      86.0
+    ]
+  }
+}

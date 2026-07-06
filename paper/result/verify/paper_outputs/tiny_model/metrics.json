@@ -1,0 +1,10 @@
+{
+  "model": "MFFT-tiny",
+  "params": 372450,
+  "accuracy": 81.67,
+  "precision": 77.78,
+  "recall": 80.77,
+  "f1": 79.25,
+  "auc_roc": 0.8416,
+  "checkpoint": "model\\checkpoints\\verify\\tiny_model\\best.pt"
+}

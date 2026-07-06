@@ -3,21 +3,21 @@
   "label": "MFFT + all upgrades",
   "table": 6,
   "params": 4632242,
-  "final_train_acc": 74.38,
-  "best_val_acc": 73.33,
-  "test_acc": 73.33,
+  "final_train_acc": 85.65,
+  "best_val_acc": 69.0,
+  "test_acc": 67.0,
   "history": {
     "train_loss": [
-      0.5841
+      0.4468
     ],
     "val_loss": [
-      0.6135
+      0.6187
     ],
     "train_acc": [
-      74.375
+      85.65
     ],
     "val_acc": [
-      73.3333
+      69.0
     ]
   }
 }

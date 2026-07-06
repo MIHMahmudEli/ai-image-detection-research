@@ -1,0 +1,11 @@
+{
+  "model": "LightViT",
+  "params": 1965890,
+  "best_val_acc": 63.8,
+  "best_epoch": 1,
+  "test_accuracy": 62.6,
+  "test_precision": 77.39,
+  "test_recall": 35.6,
+  "test_f1": 48.77,
+  "test_auc": 0.6919
+}
