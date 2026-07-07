@@ -3,21 +3,37 @@
   "label": "Mid-frequency only",
   "table": 4,
   "params": 1401794,
-  "final_train_acc": 74.58,
-  "best_val_acc": 69.6,
-  "test_acc": 62.4,
+  "final_train_acc": 79.2,
+  "best_val_acc": 82.2,
+  "test_acc": 83.6,
   "history": {
     "train_loss": [
-      0.5701
+      0.6515,
+      0.5683,
+      0.5389,
+      0.531,
+      0.51
     ],
     "val_loss": [
-      0.6422
+      0.5431,
+      0.6087,
+      0.4862,
+      0.4748,
+      0.4712
     ],
     "train_acc": [
-      74.575
+      64.325,
+      74.75,
+      76.775,
+      78.0,
+      79.2
     ],
     "val_acc": [
-      69.6
+      79.4,
+      73.4,
+      81.2,
+      80.4,
+      82.2
     ]
   }
 }

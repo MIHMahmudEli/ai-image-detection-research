@@ -1,17 +1,17 @@
 {
   "Real": {
-    "count": 30,
-    "accuracy_pct": 0.0,
-    "avg_confidence_pct": 84.22000122070312
+    "count": 235,
+    "accuracy_pct": 90.21,
+    "avg_confidence_pct": 21.8799991607666
   },
   "AI Generated": {
-    "count": 25,
-    "accuracy_pct": 100.0,
-    "avg_confidence_pct": 84.02999877929688
+    "count": 224,
+    "accuracy_pct": 80.8,
+    "avg_confidence_pct": 69.4800033569336
   },
   "AI Altered": {
-    "count": 5,
-    "accuracy_pct": 100.0,
-    "avg_confidence_pct": 84.18000030517578
+    "count": 41,
+    "accuracy_pct": 97.56,
+    "avg_confidence_pct": 85.70999908447266
   }
 }

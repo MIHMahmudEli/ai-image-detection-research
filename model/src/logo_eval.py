@@ -36,7 +36,7 @@ from .dataset import ImageTransform
 # Generator values as they appear in clean_metadata.csv's `generator` column.
 FAKE_GENERATORS = [
     "BigGAN", "Glide", "Stable Diffusion", "DALL-E3", "Midjourney",
-    "Celeb-DF", "FaceForensics", "DFDC",
+    "Celeb-DF", "FaceForensics", "DFDC", "unknown",
 ]
 
 

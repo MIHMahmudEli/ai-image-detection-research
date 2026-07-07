@@ -1,14 +1,14 @@
 {
   "real": {
-    "precision_pct": 78.52,
-    "recall_pct": 93.6,
-    "f1_pct": 85.4,
+    "precision_pct": 77.3,
+    "recall_pct": 94.0,
+    "f1_pct": 84.84,
     "support": 250
   },
   "ai_generated": {
-    "precision_pct": 92.08,
-    "recall_pct": 74.4,
-    "f1_pct": 82.3,
+    "precision_pct": 92.35,
+    "recall_pct": 72.4,
+    "f1_pct": 81.17,
     "support": 250
   }
 }

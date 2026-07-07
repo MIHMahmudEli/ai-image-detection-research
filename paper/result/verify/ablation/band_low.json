@@ -3,21 +3,37 @@
   "label": "Low-frequency only",
   "table": 4,
   "params": 1401794,
-  "final_train_acc": 63.25,
-  "best_val_acc": 69.0,
-  "test_acc": 64.6,
+  "final_train_acc": 69.25,
+  "best_val_acc": 67.4,
+  "test_acc": 70.0,
   "history": {
     "train_loss": [
-      0.6534
+      0.6639,
+      0.646,
+      0.633,
+      0.6141,
+      0.6002
     ],
     "val_loss": [
-      0.6199
+      0.6449,
+      0.6461,
+      0.6429,
+      0.6275,
+      0.62
     ],
     "train_acc": [
-      63.25
+      60.35,
+      64.25,
+      66.0,
+      68.0,
+      69.25
     ],
     "val_acc": [
-      69.0
+      65.0,
+      62.8,
+      62.6,
+      66.6,
+      67.4
     ]
   }
 }

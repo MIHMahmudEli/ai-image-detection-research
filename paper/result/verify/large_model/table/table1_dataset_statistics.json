@@ -1,10 +1,10 @@
 {
-  "total": 600,
-  "real": 300,
-  "ai_generated": 300,
-  "train": 480,
-  "val": 60,
-  "test": 60,
+  "total": 5000,
+  "real": 2500,
+  "ai_generated": 2500,
+  "train": 4000,
+  "val": 500,
+  "test": 500,
   "train_pct": 80.0,
   "val_pct": 10.0,
   "test_pct": 10.0

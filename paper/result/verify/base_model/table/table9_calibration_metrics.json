@@ -1,6 +1,6 @@
 {
-  "brier_score": 0.1303,
-  "ece": 0.1409,
-  "mean_confidence_correct": 0.5657538771629333,
-  "mean_confidence_incorrect": 0.5498396754264832
+  "brier_score": 0.1125,
+  "ece": 0.1258,
+  "mean_confidence_correct": 0.4410766661167145,
+  "mean_confidence_incorrect": 0.33849939703941345
 }

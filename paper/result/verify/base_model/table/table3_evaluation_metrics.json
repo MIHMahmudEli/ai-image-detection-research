@@ -1,8 +1,8 @@
 {
-  "accuracy_pct": 81.8,
-  "precision_pct": 78.91,
-  "recall_pct": 86.8,
-  "f1_score_pct": 82.67,
-  "auc_roc": 0.9118,
-  "expected_calibration_error": 0.1409
+  "accuracy_pct": 85.8,
+  "precision_pct": 94.09,
+  "recall_pct": 76.4,
+  "f1_score_pct": 84.33,
+  "auc_roc": 0.9291,
+  "expected_calibration_error": 0.1258
 }
