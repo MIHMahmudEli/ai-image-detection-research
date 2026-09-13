@@ -473,8 +473,22 @@ class SplitManifestManager:
                 print(f"  {slug}: NOT MATCHED{candidates_str}", flush=True)
 
         # ── Scan all matched datasets ──
-        import sys
+        import sys, os
         from tqdm import tqdm
+
+        IMG_EXT_TUPLE = tuple(IMG_EXTENSIONS)
+
+        def _fast_scan(root):
+            """Yield image file paths using os.walk (10-50x faster than rglob)."""
+            for dirpath, _, filenames in os.walk(root):
+                for fname in filenames:
+                    if fname.lower().endswith(IMG_EXT_TUPLE):
+                        full = os.path.join(dirpath, fname)
+                        try:
+                            if os.path.getsize(full) > 0:
+                                yield full
+                        except OSError:
+                            continue
 
         rows = []
         shards_used = []
@@ -491,26 +505,20 @@ class SplitManifestManager:
             if not image_root.exists():
                 image_root = mount_dir
 
-            # Scan for images (single pass, no pre-count)
             print(f"  Scanning {slug}...", end=" ", flush=True)
 
             count = 0
-            pbar = tqdm(image_root.rglob("*"), desc=f"  {slug}",
-                        leave=False, ncols=80, file=sys.stdout)
-            for img_path in pbar:
-                if img_path.suffix.lower() in IMG_EXTENSIONS and img_path.is_file():
-                    if img_path.stat().st_size == 0:
-                        continue
-                    img_id = stable_image_id(img_path.name, slug, label)
-                    rows.append({
-                        "image_id": img_id,
-                        "shard": slug,
-                        "label": label,
-                        "label_int": LABEL_MAP[label],
-                    })
-                    count += 1
-                    pbar.set_postfix(imgs=count)
-            pbar.close()
+            for img_path in _fast_scan(str(image_root)):
+                img_id = stable_image_id(os.path.basename(img_path), slug, label)
+                rows.append({
+                    "image_id": img_id,
+                    "shard": slug,
+                    "label": label,
+                    "label_int": LABEL_MAP[label],
+                })
+                count += 1
+                if count % 10000 == 0:
+                    print(f"{count}...", end=" ", flush=True)
             print(f"{count} images ({label})", flush=True)
 
         print(f"  Total: {len(rows)} images across {len(shards_used)} shards", flush=True)
