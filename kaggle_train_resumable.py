@@ -1,7 +1,12 @@
 """
-MFFT Resumable Kaggle Training Script
-========================================
+MFFT Resumable Kaggle Training Script (Manifest-Based)
+========================================================
 Multi-session training with HuggingFace Hub persistence.
+
+All models evaluate on the EXACT same data because:
+1. Master manifest on HF defines deterministic train/val/test splits
+2. Every session downloads the same manifest
+3. Split indices are baked into the manifest (seed=42)
 
 Features:
 - Resumes automatically after Kaggle session disconnect
@@ -13,7 +18,7 @@ Features:
 SETUP:
 1. Clone repo: git clone <repo_url> && cd <repo_dir>
 2. pip install -r model/requirements.txt && pip install huggingface_hub
-3. Attach all dataset shards via Kaggle Input panel
+3. Attach ALL 11 Kaggle datasets via the Input panel
 4. Set HF_TOKEN as Kaggle Secret
 5. Run this script
 
@@ -23,11 +28,11 @@ CONFIG: Edit the CONFIG section below before running.
 # ============================================================
 # CONFIG — CHANGE THESE
 # ============================================================
-GITHUB_REPO_URL = "https://github.com/YOUR_USERNAME/ai-image-detection-research.git"
-GITHUB_COMMIT_SHA = "main"  # pin to specific commit/tag for reproducibility
+GITHUB_REPO_URL = "https://github.com/MIHMahmudEli/ai-image-detection-research.git"
+GITHUB_COMMIT_SHA = "main"
 
-HF_REPO_ID = "YOUR_USERNAME/mfft-checkpoints"  # HF repo for checkpoints
-EXPECTED_SHARDS = ["mfft-shard-0", "mfft-shard-1"]  # Kaggle dataset slugs
+HF_REPO_ID = "studyhub991/mfft-checkpoints"        # HF repo for checkpoints
+HF_MANIFEST_REPO = "studyhub991/mfft-master-manifest"  # HF repo for manifest
 
 MAX_EPOCHS = 40
 PATIENCE = 8
@@ -39,7 +44,6 @@ LABEL_SMOOTHING = 0.1
 MODEL_VARIANT = "base"
 SEED = 42
 SNAPSHOT_EPOCHS = [10, 20, 30, 40]
-MIN_IMAGES_PER_SHARD = 500
 # ============================================================
 
 import os
@@ -68,7 +72,6 @@ if not REPO_DIR.exists():
 else:
     print(f"Repo already exists at {REPO_DIR}")
 
-# Add repo to Python path
 sys.path.insert(0, str(REPO_DIR))
 
 # Step 2: Install dependencies
@@ -88,15 +91,11 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LinearLR, Sequ
 from sklearn.metrics import (
     f1_score, roc_auc_score, accuracy_score,
     precision_score, recall_score, confusion_matrix,
-    classification_report,
 )
 from collections import Counter
 
-# Local imports
-from kaggle_dataset_loader import KaggleDatasetLoader, create_pytorch_datasets, CLASS_NAMES
+from kaggle_dataset_loader import KaggleDatasetLoader, CLASS_NAMES
 from hf_checkpoint_manager import HFCheckpointManager, TrainingState
-
-# Import model from cloned repo
 from model.src.model import build_mfft, count_parameters
 
 # ============================================================
@@ -134,60 +133,61 @@ except Exception:
 print(f"Git SHA: {git_sha}")
 
 # ============================================================
-# HF TOKEN (from Kaggle Secret)
+# HF TOKEN
 # ============================================================
 def get_hf_token():
-    """Retrieve HF token from Kaggle Secret or environment."""
-    # Try Kaggle Secrets
     try:
         from kaggle_secrets import UserSecretsClient
-        secrets = UserSecretsClient()
-        return secrets.get_secret("HF_TOKEN")
+        return UserSecretsClient().get_secret("HF_TOKEN")
     except Exception:
         pass
-
-    # Try environment variable
     token = os.environ.get("HF_TOKEN")
     if token:
         return token
-
-    raise ValueError(
-        "HF_TOKEN not found. Set it as a Kaggle Secret or environment variable.\n"
-        "Kaggle: Add via Add Data > Add a secret > Name: HF_TOKEN, Value: <your_token>"
-    )
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                if line.startswith("hf="):
+                    return line.strip().split("=", 1)[1]
+    raise ValueError("HF_TOKEN not found. Set as Kaggle Secret or in .env")
 
 hf_token = get_hf_token()
 print(f"HF Token loaded: {hf_token[:8]}...")
 
 # ============================================================
-# DATASET
+# DATASET (Manifest-Based)
 # ============================================================
-print("\n=== Loading Dataset ===")
+print("\n=== Loading Dataset from Master Manifest ===")
 loader = KaggleDatasetLoader(
-    expected_shards=EXPECTED_SHARDS,
-    min_images_per_shard=MIN_IMAGES_PER_SHARD,
-    seed=SEED,
+    hf_token=hf_token,
+    hf_repo=HF_MANIFEST_REPO,
+    image_size=IMAGE_SIZE,
 )
 
-try:
-    df, samples = loader.load()
-except FileNotFoundError as e:
-    print(f"\nERROR: {e}")
-    print("\nAvailable shards under /kaggle/input/:")
-    for entry in sorted(Path("/kaggle/input").iterdir()):
-        if entry.is_dir():
-            print(f"  - {entry.name}")
-    raise
+train_df, val_df, test_df = loader.load()
 
-print(loader.summary())
+if len(train_df) == 0:
+    raise RuntimeError(
+        "No training images found. Ensure all 11 Kaggle datasets are attached.\n"
+        "Required mounts: stable-diffusion, places365, open-images-v7-dataset,\n"
+        "ntire2026, midjourney, mfft-real, genimage-ai, faceforensics,\n"
+        "dfdc-faces-of-the-train-sample, dall-e3, celebdf-v2image-dataset"
+    )
 
 # Create dataloaders
-train_loader, val_loader, train_dataset, val_dataset = create_pytorch_datasets(
-    df, image_size=IMAGE_SIZE, val_split=0.15, seed=SEED,
+train_loader, val_loader = loader.to_dataloaders(
+    train_df, val_df, batch_size=BATCH_SIZE, image_size=IMAGE_SIZE,
 )
 
-print(f"\nTrain: {len(train_dataset)}, Val: {len(val_dataset)}")
-print(f"Batches: train={len(train_loader)}, val={len(val_loader)}")
+# Verify split info
+split_info = loader.get_split_info()
+print(f"\nSplit verification (all models must match this):")
+print(f"  Manifest hash: {split_info['manifest_hash']}")
+print(f"  Seed: {split_info['seed']}")
+print(f"  Train: {split_info['train_count']} (manifest) → {len(train_df)} (resolved)")
+print(f"  Val: {split_info['val_count']} (manifest) → {len(val_df)} (resolved)")
+print(f"  Test: {split_info['test_count']} (manifest) → {len(test_df)} (resolved)")
 
 # ============================================================
 # MODEL
@@ -223,10 +223,7 @@ hf_mgr = HFCheckpointManager(
 # ============================================================
 # RESUME
 # ============================================================
-state = TrainingState(
-    patience=PATIENCE,
-    git_sha=git_sha,
-)
+state = TrainingState(patience=PATIENCE, git_sha=git_sha)
 
 start_epoch = 1
 resumed = hf_mgr.resume()
@@ -244,7 +241,6 @@ if resumed is not None:
 else:
     print("\nStarting fresh training run.")
 
-# Log session start
 hf_mgr.log_session_start()
 
 # ============================================================
@@ -255,6 +251,7 @@ print(f"Training MFFT-{MODEL_VARIANT}")
 print(f"Epochs: {start_epoch} -> {MAX_EPOCHS}")
 print(f"Batch: {BATCH_SIZE}, Image: {IMAGE_SIZE}x{IMAGE_SIZE}")
 print(f"Patience: {PATIENCE} (macro-F1)")
+print(f"Manifest: {split_info['manifest_hash']}")
 print(f"{'='*60}\n")
 
 start_time = time.time()
@@ -341,7 +338,6 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
     except Exception:
         auc = 0.0
 
-    # Confusion matrix
     cm = confusion_matrix(y_true, y_pred, labels=list(range(len(CLASS_NAMES))))
     tn, fp, fn, tp = cm[0, 0], cm[0, 1], cm[1, 0], cm[1, 1]
     specificity = tn / (tn + fp) * 100 if (tn + fp) > 0 else 0
@@ -349,7 +345,6 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
     epoch_time = time.time() - epoch_start
     elapsed = time.time() - start_time
 
-    # ── Print ──
     print(
         f"Epoch {epoch:3d}/{MAX_EPOCHS} | "
         f"Train: {avg_train_loss:.4f}/{train_acc:.2f}% | "
@@ -373,6 +368,9 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
         "val_auc": round(auc, 6),
         "learning_rate": round(scheduler.get_last_lr()[0], 8),
         "timestamp": datetime.now().isoformat(),
+        "manifest_hash": split_info["manifest_hash"],
+        "split_train_count": len(train_df),
+        "split_val_count": len(val_df),
     }
     history.append(metrics)
 
@@ -399,7 +397,6 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
         print(f"\n*** EARLY STOP at epoch {epoch}: {state.reason} ***")
         break
 
-    # ── Natural completion ──
     if epoch == MAX_EPOCHS:
         state.status = "completed"
         state.reason = f"Completed all {MAX_EPOCHS} epochs."
@@ -418,6 +415,7 @@ print(f"Best val_macro_f1: {state.best_val_macro_f1:.4f}")
 print(f"Best val_auc: {state.best_val_auc:.4f}")
 print(f"Best val_accuracy: {state.best_val_accuracy:.2f}%")
 print(f"Total time: {elapsed:.0f}s ({elapsed/3600:.1f}h)")
+print(f"Manifest: {split_info['manifest_hash']}")
 print(f"{'='*60}")
 
 # ── Final metrics ──
@@ -436,10 +434,9 @@ final_metrics = {
     "batch_size": BATCH_SIZE,
     "learning_rate": LR,
     "git_sha": git_sha,
+    "manifest_hash": split_info["manifest_hash"],
 }
 
-# ── Manuscript-ready metrics ──
-# Find the best epoch's full metrics
 best_metrics = min(history, key=lambda m: abs(m["val_macro_f1"] - state.best_val_macro_f1))
 manuscript_metrics = {
     "mfft_variant": MODEL_VARIANT,
@@ -453,9 +450,9 @@ manuscript_metrics = {
     "confusion_matrix": cm.tolist(),
     "best_epoch": state.best_epoch,
     "total_training_time_hours": round(elapsed / 3600, 2),
+    "manifest_hash": split_info["manifest_hash"],
 }
 
-# ── Upload final artifacts ──
 hf_mgr.upload_final_artifacts(
     model=model,
     state=state,
@@ -464,7 +461,6 @@ hf_mgr.upload_final_artifacts(
     manuscript_metrics=manuscript_metrics,
 )
 
-# ── Save locally ──
 results_path = Path("/kaggle/working/mfft_results.json")
 with open(results_path, "w") as f:
     json.dump({

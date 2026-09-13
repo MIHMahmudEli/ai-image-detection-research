@@ -1,19 +1,16 @@
 """
-Multi-shard Kaggle Dataset Loader
-==================================
-Auto-discovers all mounted dataset directories under /kaggle/input/,
-validates each shard against an expected manifest, and merges them
-into a single unified index for PyTorch DataLoader consumption.
+Kaggle Dataset Loader (Manifest-Based)
+========================================
+Downloads the master manifest from HuggingFace Hub and resolves image
+paths from mounted Kaggle datasets. Every training session uses the
+exact same split indices, ensuring fair evaluation across all models.
 
 Usage:
     from kaggle_dataset_loader import KaggleDatasetLoader
 
-    loader = KaggleDatasetLoader(
-        expected_shards=["mfft-shard-0", "mfft-shard-1"],
-        min_images_per_shard=1000,
-    )
-    df = loader.load()            # merged DataFrame
-    samples = loader.to_samples() # list of (path, label, class_name)
+    loader = KaggleDatasetLoader(hf_token=os.environ["HF_TOKEN"])
+    train_df, val_df, test_df = loader.load()
+    train_loader, val_loader = loader.to_dataloaders(image_size=224)
 """
 
 import os
@@ -22,7 +19,6 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, field
 from collections import Counter
 
 import pandas as pd
@@ -31,470 +27,327 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 KAGGLE_INPUT_ROOT = Path("/kaggle/input")
-LABEL_MAP = {
-    "real": 0, "real_image": 0, "0": 0,
-    "ai_generated": 1, "ai": 1, "ai-generated": 1, "ai_generation": 1,
-    "1": 1, "fake": 1,
-    "ai_altered": 2, "altered": 2, "deepfake": 2,
-}
+HF_REPO_ID = "studyhub991/mfft-master-manifest"
 CLASS_NAMES = ["real", "ai_generated", "deepfake"]
-
-
-@dataclass
-class ShardManifest:
-    """Expected manifest for a single dataset shard."""
-    slug: str
-    min_images: int = 500
-    expected_labels: Optional[List[str]] = None  # e.g. ["real", "ai_generated"]
-    checksum_sample: Optional[str] = None        # first 1000 chars of metadata CSV hash
-    metadata_filename: str = "metadata.csv"
-
-
-@dataclass
-class ShardInfo:
-    """Validated info about a discovered shard."""
-    slug: str
-    path: Path
-    metadata_path: Path
-    images_dir: Path
-    total_images: int
-    label_distribution: Dict[str, int]
-    checksum_ok: bool
-    validation_errors: List[str] = field(default_factory=list)
 
 
 class KaggleDatasetLoader:
     """
-    Discovers, validates, and merges multi-account Kaggle dataset shards.
+    Loads the master manifest from HuggingFace and resolves image paths
+    from mounted Kaggle datasets.
 
-    Each shard is a Kaggle Dataset mounted under /kaggle/input/<slug>/.
-    A valid shard contains:
-        <slug>/
-            metadata.csv   (columns: filename, label, [source, generator])
-            images/        (directory of .jpg/.png files)
+    Every session gets the exact same train/val/test split because:
+    1. The manifest defines deterministic split indices
+    2. Each session resolves paths from its mounted datasets
+    3. Only images present in BOTH the manifest AND the mount are used
     """
 
     def __init__(
         self,
-        expected_shards: Optional[List[str]] = None,
-        min_images_per_shard: int = 500,
-        metadata_filename: str = "metadata.csv",
+        hf_token: str = None,
+        hf_repo: str = HF_REPO_ID,
         input_root: str = None,
-        seed: int = 42,
+        image_size: int = 224,
     ):
-        self.expected_shards = expected_shards or []
-        self.min_images_per_shard = min_images_per_shard
-        self.metadata_filename = metadata_filename
+        self.hf_token = hf_token or os.environ.get("HF_TOKEN")
+        self.hf_repo = hf_repo
         self.input_root = Path(input_root) if input_root else KAGGLE_INPUT_ROOT
-        self.seed = seed
-        self._discovered: Dict[str, ShardInfo] = {}
+        self.image_size = image_size
+        self._manifest = None
+        self._mount_map: Dict[str, Path] = {}
 
-    def discover(self) -> Dict[str, ShardInfo]:
-        """Auto-discover all mounted dataset directories with metadata.csv."""
-        discovered = {}
+    def _get_hf_token(self) -> str:
+        """Get HF token from various sources."""
+        if self.hf_token:
+            return self.hf_token
+
+        # Try Kaggle Secrets
+        try:
+            from kaggle_secrets import UserSecretsClient
+            return UserSecretsClient().get_secret("HF_TOKEN")
+        except Exception:
+            pass
+
+        # Try .env file
+        env_path = Path(__file__).parent / ".env"
+        if env_path.exists():
+            with open(env_path) as f:
+                for line in f:
+                    if line.startswith("hf="):
+                        return line.strip().split("=", 1)[1]
+
+        raise ValueError(
+            "HF_TOKEN not found. Set via:\n"
+            "  1. Kaggle Secret: Name=HF_TOKEN\n"
+            "  2. Environment: export HF_TOKEN=...\n"
+            "  3. .env file: hf=hf_..."
+        )
+
+    def download_manifest(self) -> dict:
+        """Download master manifest from HuggingFace Hub."""
+        if self._manifest is not None:
+            return self._manifest
+
+        print("Downloading master manifest from HuggingFace Hub...")
+
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            os.system("pip install huggingface_hub -q")
+            from huggingface_hub import hf_hub_download
+
+        token = self._get_hf_token()
+
+        try:
+            manifest_path = hf_hub_download(
+                repo_id=self.hf_repo,
+                filename="master_manifest.json",
+                repo_type="model",
+                token=token,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to download manifest from {self.hf_repo}: {e}\n"
+                "Ensure the HF repo exists and contains master_manifest.json.\n"
+                "Run: python build_master_manifest.py --upload"
+            )
+
+        with open(manifest_path, "r") as f:
+            self._manifest = json.load(f)
+
+        print(f"  Manifest loaded: {self._manifest['sample_count'] if 'sample_count' in self._manifest else len(self._manifest.get('samples', []))} samples")
+        print(f"  Version: {self._manifest.get('version', 'unknown')}")
+        print(f"  Hash: {self._manifest.get('manifest_hash', 'N/A')}")
+
+        return self._manifest
+
+    def discover_mounts(self) -> Dict[str, Path]:
+        """Auto-discover all mounted Kaggle datasets."""
+        if self._mount_map:
+            return self._mount_map
 
         if not self.input_root.exists():
-            raise FileNotFoundError(
-                f"Kaggle input root not found: {self.input_root}\n"
-                "Ensure datasets are attached via the Kaggle Input panel."
-            )
+            logger.warning(f"Kaggle input root not found: {self.input_root}")
+            return {}
 
         for entry in sorted(self.input_root.iterdir()):
-            if not entry.is_dir():
-                continue
+            if entry.is_dir():
+                self._mount_map[entry.name] = entry
+                logger.debug(f"  Mounted: {entry.name}")
 
-            metadata_path = entry / self.metadata_filename
-            if not metadata_path.exists():
-                # Try common alternatives
-                for alt in ["train_metadata.csv", "clean_metadata.csv", "labels.csv"]:
-                    candidate = entry / alt
-                    if candidate.exists():
-                        metadata_path = candidate
-                        break
-                else:
-                    logger.debug(f"Skipping {entry.name}: no metadata CSV found")
-                    continue
+        print(f"  Discovered {len(self._mount_map)} mounted datasets: {list(self._mount_map.keys())}")
+        return self._mount_map
 
-            # Find images directory
-            images_dir = self._find_images_dir(entry)
-            if images_dir is None:
-                logger.warning(f"Skipping {entry.name}: no images/ directory found")
-                continue
+    def resolve_path(self, relative_path: str, kaggle_mount_slug: str) -> Optional[Path]:
+        """
+        Resolve an image path from the manifest against mounted Kaggle datasets.
+        
+        The manifest stores paths like "Stable Diffusion/images/0/custom_0_0.png"
+        which need to be resolved against the Kaggle mount path.
+        """
+        mounts = self.discover_mounts()
 
-            discovered[entry.name] = ShardInfo(
-                slug=entry.name,
-                path=entry,
-                metadata_path=metadata_path,
-                images_dir=images_dir,
-                total_images=0,
-                label_distribution={},
-                checksum_ok=False,
-            )
-
-        logger.info(f"Discovered {len(discovered)} shards with metadata: "
-                     f"{list(discovered.keys())}")
-        self._discovered = discovered
-        return discovered
-
-    def _find_images_dir(self, shard_path: Path) -> Optional[Path]:
-        """Find the images directory within a shard."""
-        candidates = [
-            shard_path / "images",
-            shard_path / "data",
-            shard_path,
-        ]
-        for c in candidates:
-            if c.exists() and c.is_dir():
-                image_count = sum(
-                    1 for f in c.rglob("*")
-                    if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
-                )
-                if image_count > 0:
-                    return c
-        return None
-
-    def validate(self, shard: ShardInfo) -> ShardInfo:
-        """Validate a single shard against expected constraints."""
-        errors = []
-
-        # Load metadata
-        try:
-            df = pd.read_csv(shard.metadata_path, low_memory=False)
-        except Exception as e:
-            errors.append(f"Failed to read metadata: {e}")
-            shard.validation_errors = errors
-            shard.total_images = 0
-            return shard
-
-        # Validate required columns
-        if "filename" not in df.columns:
-            errors.append("Missing 'filename' column in metadata")
-        if "label" not in df.columns:
-            errors.append("Missing 'label' column in metadata")
-
-        if errors:
-            shard.validation_errors = errors
-            shard.total_images = 0
-            return shard
-
-        # Resolve image paths and count valid images
-        valid_rows = []
-        missing_count = 0
-        zero_byte_count = 0
-
-        for _, row in df.iterrows():
-            img_path = self._resolve_image_path(row, shard.images_dir)
-            if img_path is None:
-                missing_count += 1
-                continue
-
-            if img_path.stat().st_size == 0:
-                zero_byte_count += 1
-                continue
-
-            label_str = str(row.get("label", "")).lower()
-            label_int = LABEL_MAP.get(label_str)
-            if label_int is None:
-                continue
-
-            valid_rows.append({
-                "path": str(img_path),
-                "label": label_int,
-                "label_name": label_str if label_int != 2 else "deepfake",
-                "filename": row.get("filename", ""),
-                "source": row.get("source", shard.slug),
-                "generator": row.get("generator", ""),
-                "shard": shard.slug,
-            })
-
-        shard.total_images = len(valid_rows)
-        shard.label_distribution = dict(Counter(r["label_name"] for r in valid_rows))
-
-        # Validation checks
-        if shard.total_images < self.min_images_per_shard:
-            errors.append(
-                f"Too few images: {shard.total_images} < {self.min_images_per_shard}"
-            )
-
-        if missing_count > 0:
-            errors.append(f"{missing_count} images referenced in metadata but missing on disk")
-
-        if zero_byte_count > 0:
-            errors.append(f"{zero_byte_count} zero-byte images skipped")
-
-        # Checksum validation
-        if shard.checksum_sample:
-            actual_hash = self._compute_metadata_hash(shard.metadata_path)
-            if actual_hash != shard.checksum_sample:
-                errors.append(
-                    f"Checksum mismatch: expected {shard.checksum_sample[:16]}..., "
-                    f"got {actual_hash[:16]}..."
-                )
-                shard.checksum_ok = False
-            else:
-                shard.checksum_ok = True
-        else:
-            shard.checksum_ok = True
-
-        shard.validation_errors = errors
-        return shard
-
-    def _resolve_image_path(self, row: pd.Series, images_dir: Path) -> Optional[Path]:
-        """Resolve image file path from a metadata row."""
-        filename = str(row.get("filename", ""))
-        if not filename:
-            return None
-
-        filename = filename.replace("\\", "/")
-
-        # Direct lookup
-        candidate = images_dir / filename
-        if candidate.exists() and candidate.is_file():
-            return candidate
-
-        # Subdirectory lookup
-        for subdir in ["images", "real", "ai_generated", "ai_altered"]:
-            candidate = images_dir / subdir / filename
+        # Try the specific mount slug first
+        if kaggle_mount_slug and kaggle_mount_slug in mounts:
+            mount_dir = mounts[kaggle_mount_slug]
+            # The mount may have an extra subdirectory
+            # e.g., /kaggle/input/stable-diffusion/Stable Diffusion/images/...
+            candidate = mount_dir / relative_path
             if candidate.exists() and candidate.is_file():
                 return candidate
 
-        # Flat name (filename without directory)
-        flat_name = Path(filename).name
-        for subdir in ["", "images", "real", "ai_generated", "ai_altered"]:
-            candidate = images_dir / subdir / flat_name
+            # Try without the first directory component (some datasets have nested dirs)
+            parts = Path(relative_path).parts
+            if len(parts) > 1:
+                candidate = mount_dir / Path(*parts[1:])
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+
+            # Try flat search - just the filename
+            filename = Path(relative_path).name
+            for img in mount_dir.rglob(filename):
+                if img.is_file():
+                    return img
+
+        # Try all mounts as fallback
+        filename = Path(relative_path).name
+        for mount_name, mount_dir in mounts.items():
+            # Direct path
+            candidate = mount_dir / relative_path
             if candidate.exists() and candidate.is_file():
                 return candidate
 
+            # Flat search
+            for img in mount_dir.rglob(filename):
+                if img.is_file():
+                    return img
+
         return None
 
-    def _compute_metadata_hash(self, metadata_path: Path) -> str:
-        """Compute SHA-256 hash of metadata CSV (first 1000 chars for speed)."""
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            content = f.read(1000)
-        return hashlib.sha256(content.encode()).hexdigest()
+    def load(self, split: str = "all") -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """
+        Load manifest and resolve paths. Returns (train_df, val_df, test_df).
 
-    def validate_all(self) -> Dict[str, ShardInfo]:
-        """Discover and validate all shards."""
-        if not self._discovered:
-            self.discover()
+        split: "train", "val", "test", or "all"
+        """
+        manifest = self.download_manifest()
+        samples = manifest.get("samples", [])
+        split_info = manifest.get("split", {})
 
-        for slug, shard in self._discovered.items():
-            self.validate(shard)
-            status = "OK" if not shard.validation_errors else "ISSUES"
-            logger.info(
-                f"  [{status}] {slug}: {shard.total_images} images, "
-                f"distribution={shard.label_distribution}"
-            )
-            for err in shard.validation_errors:
-                logger.warning(f"    - {err}")
+        if not samples:
+            raise RuntimeError("Manifest has no samples. Re-run build_master_manifest.py")
 
-        return self._discovered
+        # Get split indices
+        train_indices = split_info.get("train_indices", [])
+        val_indices = split_info.get("val_indices", [])
+        test_indices = split_info.get("test_indices", [])
 
-    def check_expected_shards(self) -> List[str]:
-        """Verify all expected shards are present and valid. Raises on failure."""
-        if not self._discovered:
-            self.validate_all()
+        if not train_indices:
+            raise RuntimeError("Manifest has no split indices. Re-run build_master_manifest.py")
 
-        missing = []
-        for slug in self.expected_shards:
-            if slug not in self._discovered:
-                missing.append(slug)
-            elif self._discovered[slug].total_images == 0:
-                missing.append(f"{slug} (found but 0 valid images)")
-            elif self._discovered[slug].validation_errors:
-                # Log warnings but don't fail on validation warnings
-                pass
+        print(f"\nManifest split: train={len(train_indices)}, val={len(val_indices)}, test={len(test_indices)}")
 
-        if missing:
-            raise FileNotFoundError(
-                f"Missing/empty expected shards: {missing}\n"
-                f"Available shards: {list(self._discovered.keys())}\n"
-                "Attach all required datasets via the Kaggle Input panel."
-            )
-
-        return missing
-
-    def merge(self) -> pd.DataFrame:
-        """Merge all valid shards into a single DataFrame."""
-        if not self._discovered:
-            self.validate_all()
-
-        all_rows = []
-        for slug, shard in self._discovered.items():
-            if shard.total_images == 0:
-                logger.warning(f"Skipping empty shard: {slug}")
-                continue
-
-            df = pd.read_csv(shard.metadata_path, low_memory=False)
-            for _, row in df.iterrows():
-                img_path = self._resolve_image_path(row, shard.images_dir)
-                if img_path is None or img_path.stat().st_size == 0:
+        # Resolve paths for each split
+        def resolve_split(indices, split_name):
+            resolved = []
+            missing = 0
+            for idx in indices:
+                if idx >= len(samples):
+                    continue
+                sample = samples[idx]
+                path = self.resolve_path(
+                    sample["relative_path"],
+                    sample.get("kaggle_mount_slug", ""),
+                )
+                if path is None:
+                    missing += 1
                     continue
 
-                label_str = str(row.get("label", "")).lower()
-                label_int = LABEL_MAP.get(label_str)
-                if label_int is None:
-                    continue
-
-                all_rows.append({
-                    "path": str(img_path),
-                    "label": label_int,
-                    "label_name": "real" if label_int == 0
-                        else ("ai_generated" if label_int == 1 else "deepfake"),
-                    "filename": row.get("filename", ""),
-                    "source": row.get("source", shard.slug),
-                    "generator": row.get("generator", ""),
-                    "shard": shard.slug,
+                resolved.append({
+                    "path": str(path),
+                    "label": sample["label"],
+                    "label_name": CLASS_NAMES[sample["label"]],
+                    "image_id": sample["image_id"],
+                    "source": sample.get("source", ""),
+                    "split": split_name,
                 })
 
-        if not all_rows:
-            raise RuntimeError("No valid samples found across any shard")
+            if missing > 0:
+                print(f"  {split_name}: {missing}/{len(indices)} images not found on this mount")
 
-        df = pd.DataFrame(all_rows)
+            return pd.DataFrame(resolved)
 
-        # Summary
-        total = len(df)
-        dist = df["label_name"].value_counts().to_dict()
-        shard_counts = df["shard"].value_counts().to_dict()
-        logger.info(f"\nMerged dataset: {total} samples")
-        logger.info(f"  Distribution: {dist}")
-        logger.info(f"  Per-shard: {shard_counts}")
+        train_df = resolve_split(train_indices, "train")
+        val_df = resolve_split(val_indices, "val")
+        test_df = resolve_split(test_indices, "test")
 
-        return df
+        # Print summary
+        for name, df in [("train", train_df), ("val", val_df), ("test", test_df)]:
+            if len(df) > 0:
+                dist = df["label_name"].value_counts().to_dict()
+                print(f"  {name}: {len(df)} samples | {dist}")
+            else:
+                print(f"  {name}: 0 samples")
 
-    def to_samples(self, df: Optional[pd.DataFrame] = None) -> List[Tuple[str, int, str]]:
-        """Convert merged DataFrame to list of (path, label, class_name)."""
-        if df is None:
-            df = self.merge()
-        return list(zip(df["path"], df["label"], df["label_name"]))
+        return train_df, val_df, test_df
 
-    def load(self, df_only: bool = False):
-        """
-        Full pipeline: discover, validate, merge.
-        Returns DataFrame. If df_only=False, also returns samples list.
-        """
-        self.validate_all()
-        df = self.merge()
+    def to_dataloaders(
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        batch_size: int = 64,
+        image_size: int = None,
+        num_workers: int = 2,
+    ):
+        """Create PyTorch dataloaders with shared transforms."""
+        import torch
+        from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+        from torchvision import transforms
+        from PIL import Image
 
-        if df_only:
-            return df
+        image_size = image_size or self.image_size
 
-        samples = self.to_samples(df)
-        return df, samples
+        class ManifestDataset(Dataset):
+            def __init__(self, df, transform=None):
+                self.samples = list(zip(df["path"].tolist(), df["label"].tolist()))
+                self.transform = transform
 
-    def summary(self) -> str:
-        """Human-readable summary of discovered shards."""
-        lines = ["Kaggle Dataset Loader Summary", "=" * 40]
-        for slug, shard in sorted(self._discovered.items()):
-            status = "OK" if not shard.validation_errors else "ISSUES"
-            lines.append(f"  [{status}] {slug}")
-            lines.append(f"    Images: {shard.total_images}")
-            lines.append(f"    Labels: {shard.label_distribution}")
-            for err in shard.validation_errors:
-                lines.append(f"    WARNING: {err}")
-        lines.append(f"  Total shards: {len(self._discovered)}")
-        return "\n".join(lines)
+            def __len__(self):
+                return len(self.samples)
 
+            def __getitem__(self, idx):
+                path, label = self.samples[idx]
+                try:
+                    img = Image.open(path).convert("RGB")
+                    if self.transform:
+                        img = self.transform(img)
+                    return img, label
+                except Exception:
+                    for offset in range(1, min(10, len(self.samples))):
+                        retry_idx = (idx + offset) % len(self.samples)
+                        try:
+                            img = Image.open(self.samples[retry_idx][0]).convert("RGB")
+                            if self.transform:
+                                img = self.transform(img)
+                            return img, self.samples[retry_idx][1]
+                        except Exception:
+                            continue
+                    return torch.zeros(3, image_size, image_size), label
 
-def create_pytorch_datasets(
-    df: pd.DataFrame,
-    image_size: int = 224,
-    val_split: float = 0.15,
-    seed: int = 42,
-):
-    """
-    Create PyTorch train/val datasets + dataloaders from merged DataFrame.
-    Uses stratified split. Returns (train_loader, val_loader, train_dataset, val_dataset).
-    """
-    import torch
-    from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-    from torchvision import transforms
-    from sklearn.model_selection import train_test_split
-    from PIL import Image
+        # Shared transforms (deterministic across all sessions)
+        train_transform = transforms.Compose([
+            transforms.Resize(image_size + 16),
+            transforms.RandomResizedCrop(image_size, scale=(0.85, 1.0)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=10, fill=128),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            transforms.RandomErasing(p=0.1, scale=(0.02, 0.1)),
+        ])
 
-    class KaggleImageDataset(Dataset):
-        def __init__(self, samples, transform=None):
-            self.samples = samples  # list of (path, label)
-            self.transform = transform
+        val_transform = transforms.Compose([
+            transforms.Resize(image_size + 16),
+            transforms.CenterCrop(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ])
 
-        def __len__(self):
-            return len(self.samples)
+        train_dataset = ManifestDataset(train_df, transform=train_transform)
+        val_dataset = ManifestDataset(val_df, transform=val_transform)
 
-        def __getitem__(self, idx):
-            path, label = self.samples[idx]
-            try:
-                img = Image.open(path).convert("RGB")
-                if self.transform:
-                    img = self.transform(img)
-                return img, label
-            except Exception:
-                # Retry with next sample
-                for offset in range(1, min(10, len(self.samples))):
-                    retry_idx = (idx + offset) % len(self.samples)
-                    try:
-                        img = Image.open(self.samples[retry_idx][0]).convert("RGB")
-                        if self.transform:
-                            img = self.transform(img)
-                        return img, self.samples[retry_idx][1]
-                    except Exception:
-                        continue
-                blank = torch.zeros(3, image_size, image_size)
-                return blank, label
+        # Weighted sampler for class balance
+        train_labels = [s[1] for s in train_dataset.samples]
+        class_counts = np.bincount(train_labels)
+        class_weights = 1.0 / class_counts
+        sample_weights = [class_weights[l] for l in train_labels]
+        sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
 
-    # Transforms
-    train_transform = transforms.Compose([
-        transforms.Resize(image_size + 16),
-        transforms.RandomResizedCrop(image_size, scale=(0.85, 1.0)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10, fill=128),
-        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-        transforms.RandomErasing(p=0.1, scale=(0.02, 0.1)),
-    ])
+        train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, sampler=sampler,
+            num_workers=num_workers, pin_memory=True, drop_last=True,
+        )
+        val_loader = DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, pin_memory=True,
+        )
 
-    val_transform = transforms.Compose([
-        transforms.Resize(image_size + 16),
-        transforms.CenterCrop(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ])
+        print(f"\nDataloaders: train={len(train_dataset)}, val={len(val_dataset)}")
+        print(f"Class counts (train): {dict(Counter(train_labels))}")
 
-    # Stratified split
-    paths = df["path"].tolist()
-    labels = df["label"].tolist()
+        return train_loader, val_loader
 
-    train_paths, val_paths, train_labels, val_labels = train_test_split(
-        paths, labels, test_size=val_split, stratify=labels, random_state=seed,
-    )
-
-    train_samples = list(zip(train_paths, train_labels))
-    val_samples = list(zip(val_paths, val_labels))
-
-    train_dataset = KaggleImageDataset(train_samples, transform=train_transform)
-    val_dataset = KaggleImageDataset(val_samples, transform=val_transform)
-
-    # Weighted sampler for class balance
-    class_counts = np.bincount(train_labels)
-    class_weights = 1.0 / class_counts
-    sample_weights = [class_weights[l] for l in train_labels]
-    sampler = WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
-
-    num_workers = 2 if torch.cuda.is_available() else 0
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=32, sampler=sampler,
-        num_workers=num_workers, pin_memory=True, drop_last=True,
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=32, shuffle=False,
-        num_workers=num_workers, pin_memory=True,
-    )
-
-    print(f"Train: {len(train_dataset)}, Val: {len(val_dataset)}")
-    print(f"Class counts (train): real={class_counts[0]}, ai={class_counts[1]}", end="")
-    if len(class_counts) > 2:
-        print(f", deepfake={class_counts[2]}", end="")
-    print()
-
-    return train_loader, val_loader, train_dataset, val_dataset
+    def get_split_info(self) -> dict:
+        """Return split metadata for logging/verification."""
+        manifest = self.download_manifest()
+        split = manifest.get("split", {})
+        return {
+            "seed": split.get("seed"),
+            "train_count": split.get("train_count"),
+            "val_count": split.get("val_count"),
+            "test_count": split.get("test_count"),
+            "train_class_dist": split.get("train_class_dist"),
+            "val_class_dist": split.get("val_class_dist"),
+            "test_class_dist": split.get("test_class_dist"),
+            "manifest_hash": manifest.get("manifest_hash"),
+        }
