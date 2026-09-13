@@ -175,27 +175,49 @@ class SplitManifestManager:
         if input_root.exists():
             actual_mounts = [d.name for d in input_root.iterdir() if d.is_dir()]
             print(f"  Found {len(actual_mounts)} mount(s): {actual_mounts[:15]}{'...' if len(actual_mounts) > 15 else ''}")
+            # Kaggle often nests attached datasets under /kaggle/input/datasets/
+            datasets_dir = input_root / "datasets"
+            if datasets_dir.exists():
+                nested = [d.name for d in datasets_dir.iterdir() if d.is_dir()]
+                print(f"  Found {len(nested)} dataset(s) under {datasets_dir}: {nested[:15]}{'...' if len(nested) > 15 else ''}")
+                actual_mounts.extend(nested)
         else:
             actual_mounts = []
             print(f"  {input_root} does not exist")
 
         # Build a mapping: expected_slug -> actual_mount_name
-        # Kaggle mount names can be "owner-slug", "slug", or just "slug"
+        # Kaggle mount names can be "owner-slug", "slug", "datasets/slug", or just "slug"
+        datasets_dir = input_root / "datasets"
         slug_map = {}  # expected_slug -> actual_mount_dir
         for slug in KAGGLE_DATASETS:
-            # Try exact match first
-            if slug in actual_mounts:
-                slug_map[slug] = input_root / slug
+            # Try exact match at top level
+            if slug in [m for m in actual_mounts if not m.startswith("datasets")]:
+                # Could be at top level or inside datasets/
+                top = input_root / slug
+                nested = datasets_dir / slug
+                slug_map[slug] = top if top.exists() else nested
                 continue
+            # Try exact match inside datasets/
+            if datasets_dir.exists():
+                if slug in [d.name for d in datasets_dir.iterdir() if d.is_dir()]:
+                    slug_map[slug] = datasets_dir / slug
+                    continue
             # Try partial match (e.g. "mihmahmud-stable-diffusion" matches "stable-diffusion")
             matches = [m for m in actual_mounts if slug in m or m in slug]
             if len(matches) == 1:
-                slug_map[slug] = input_root / matches[0]
+                # Resolve: could be top-level or nested
+                candidate = input_root / matches[0]
+                if not candidate.exists() and datasets_dir.exists():
+                    candidate = datasets_dir / matches[0]
+                slug_map[slug] = candidate
                 print(f"  Mapped {slug} -> {matches[0]}")
             elif len(matches) > 1:
                 # Pick shortest match (most specific)
                 best = min(matches, key=len)
-                slug_map[slug] = input_root / best
+                candidate = input_root / best
+                if not candidate.exists() and datasets_dir.exists():
+                    candidate = datasets_dir / best
+                slug_map[slug] = candidate
                 print(f"  Mapped {slug} -> {best} (from {matches})")
             # else: not mounted
 
@@ -365,16 +387,27 @@ class SplitManifestManager:
             label, subdir = KAGGLE_DATASETS[shard]
             mount_dir = self.input_root / shard
             if not mount_dir.exists():
-                # Fuzzy match: find mount containing shard name
-                if self.input_root.exists():
-                    actual = [d.name for d in self.input_root.iterdir() if d.is_dir()]
-                    matches = [m for m in actual if shard in m or m in shard]
-                    if matches:
-                        mount_dir = self.input_root / min(matches, key=len)
+                # Try inside datasets/ subdirectory
+                datasets_dir = self.input_root / "datasets"
+                if datasets_dir.exists():
+                    mount_dir = datasets_dir / shard
+                if not mount_dir.exists():
+                    # Fuzzy match: find mount containing shard name
+                    if self.input_root.exists():
+                        actual = [d.name for d in self.input_root.iterdir() if d.is_dir()]
+                        if datasets_dir.exists():
+                            actual += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
+                        matches = [m for m in actual if shard in m or m in shard]
+                        if matches:
+                            best = min(matches, key=len)
+                            candidate = self.input_root / best
+                            if not candidate.exists() and datasets_dir.exists():
+                                candidate = datasets_dir / best
+                            mount_dir = candidate
+                        else:
+                            continue
                     else:
                         continue
-                else:
-                    continue
 
             image_root = mount_dir / subdir
             if not image_root.exists():
