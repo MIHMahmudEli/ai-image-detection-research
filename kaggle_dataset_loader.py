@@ -26,9 +26,12 @@ from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from torchvision import transforms
 from PIL import Image
 
-logger = logging.getLogger(__name__)
+from pipeline_config import (
+    IMG_EXTENSIONS, LABEL_MAP, CLASS_NAMES, KAGGLE_DATASETS, KAGGLE_INPUT_ROOT,
+)
+from split_manifest_manager import stable_image_id, build_mount_index
 
-IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+logger = logging.getLogger(__name__)
 
 # Default transforms (shared across all splits for compatibility)
 TRAIN_TRANSFORM = transforms.Compose([
@@ -45,11 +48,6 @@ VAL_TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
-
-
-def stable_image_id(filename: str, shard: str, label: str) -> str:
-    """Deterministic image ID from filename+shard+label."""
-    return hashlib.sha1(f"{filename}|{shard}|{label}".encode()).hexdigest()[:20]
 
 
 class ManifestDataset(Dataset):
@@ -79,7 +77,6 @@ class ManifestDataset(Dataset):
             except Exception as e:
                 if attempt == 2:
                     logger.warning(f"Failed to load {img_path}: {e}")
-                    # Return a zero tensor as fallback
                     dummy = torch.zeros(3, 224, 224)
                     return dummy, label
 
@@ -100,12 +97,12 @@ class KaggleDatasetLoader:
         self,
         manifest: dict,
         manifest_sha256: str = "",
-        input_root: str = "/kaggle/input",
+        input_root: str = None,
         image_size: int = 224,
     ):
         self.manifest = manifest
         self.manifest_sha256 = manifest_sha256
-        self.input_root = Path(input_root)
+        self.input_root = Path(input_root) if input_root else KAGGLE_INPUT_ROOT
         self.image_size = image_size
 
         # Verify hash if provided
@@ -118,44 +115,42 @@ class KaggleDatasetLoader:
                     f"computed={computed[:12]}"
                 )
 
-        # Discover mounts
-        self.mounts = self._discover_mounts()
-        print(f"[DatasetLoader] Found {len(self.mounts)} mounted datasets: {list(self.mounts.keys())}")
+        # Build mount indices ONCE (BUG 1 fix — O(total_files) not O(N*M))
+        self._mount_indices: Dict[str, Dict[str, Path]] = {}
+        self._build_all_indices()
 
         # Apply split manifest
         self.train_data, self.val_data, self.test_data = self._apply_split_manifest()
 
-    def _discover_mounts(self) -> Dict[str, Path]:
-        """Discover all mounted Kaggle datasets."""
-        mounts = {}
-        if not self.input_root.exists():
-            return mounts
-        for entry in sorted(self.input_root.iterdir()):
-            if entry.is_dir():
-                mounts[entry.name] = entry
-        return mounts
+    def _build_all_indices(self):
+        """Build per-shard lookup indices by walking each mount once."""
+        shards_needed = set(
+            info["shard"] for info in self.manifest["images"].values()
+        )
+
+        for shard in shards_needed:
+            if shard not in KAGGLE_DATASETS:
+                continue
+            label, subdir = KAGGLE_DATASETS[shard]
+            mount_dir = self.input_root / shard
+            if not mount_dir.exists():
+                continue
+
+            image_root = mount_dir / subdir
+            if not image_root.exists():
+                image_root = mount_dir
+
+            idx = build_mount_index(image_root, shard, label)
+            self._mount_indices[shard] = idx
+
+        print(f"[DatasetLoader] Built indices for {len(self._mount_indices)} shards")
 
     def _resolve_path(self, image_id: str, info: dict) -> Optional[Path]:
-        """Resolve an image path from manifest info against mounted datasets."""
+        """O(1) lookup via pre-built mount index."""
         shard = info["shard"]
-        label = info["label"]
-        filename = info.get("filename", "")
-
-        # Try specific shard mount first
-        if shard in self.mounts:
-            mount = self.mounts[shard]
-            for img in mount.rglob("*"):
-                if img.suffix.lower() in IMG_EXTENSIONS and img.is_file():
-                    if stable_image_id(img.name, shard, label) == image_id:
-                        return img
-
-        # Fallback: search all mounts
-        for mount in self.mounts.values():
-            for img in mount.rglob("*"):
-                if img.suffix.lower() in IMG_EXTENSIONS and img.is_file():
-                    if stable_image_id(img.name, shard, label) == image_id:
-                        return img
-
+        idx = self._mount_indices.get(shard)
+        if idx is not None:
+            return idx.get(image_id)
         return None
 
     def _apply_split_manifest(self) -> Tuple[List[Dict], List[Dict], List[Dict]]:
@@ -202,16 +197,16 @@ class KaggleDatasetLoader:
             if len(unresolved) > 10:
                 print(f"    ... and {len(unresolved) - 10} more")
 
-            # Sanity check: unresolved should be < 2% of total
-            manifest_total = self.manifest["total_images"]
-            unresolved_pct = len(unresolved) / manifest_total
+            # BUG 2 fix: use .get() with fallback, never bare dict access
+            manifest_total = self.manifest.get("total_images", len(self.manifest.get("images", {})))
+            unresolved_pct = len(unresolved) / manifest_total if manifest_total > 0 else 0
             if unresolved_pct > 0.02:
                 raise RuntimeError(
                     f"Too many unresolved images: {len(unresolved)}/{manifest_total} "
                     f"({unresolved_pct:.1%}). Check that all datasets are mounted."
                 )
 
-        # Sanity check: distribution tolerance ±2%
+        # Sanity check: distribution tolerance +/-2%
         self._verify_distribution(train_entries, val_entries, test_entries)
 
         return train_entries, val_entries, test_entries
@@ -219,12 +214,13 @@ class KaggleDatasetLoader:
     def _verify_distribution(
         self, train_entries, val_entries, test_entries
     ):
-        """Verify class distribution matches manifest within ±2% tolerance."""
+        """Verify class distribution matches manifest within +/-2% tolerance."""
         manifest_dist = self.manifest.get("class_distribution", {})
         if not manifest_dist:
             return
 
-        total = len(train_entries) + len(val_entries) + len(test_entries)
+        # BUG 2 fix: use .get() with fallback
+        total = self.manifest.get("total_images", len(self.manifest.get("images", {})))
         if total == 0:
             return
 
@@ -234,7 +230,7 @@ class KaggleDatasetLoader:
 
         tolerance = 0.02
         for label_name, expected_ratio in manifest_dist.items():
-            actual_ratio = actual_dist.get(label_name, 0) / total
+            actual_ratio = actual_dist.get(label_name, 0) / len(all_entries) if all_entries else 0
             if abs(actual_ratio - expected_ratio) > tolerance:
                 logger.warning(
                     f"Distribution mismatch for {label_name}: "
@@ -254,7 +250,6 @@ class KaggleDatasetLoader:
         Returns:
             (train_loader, val_loader, test_loader)
         """
-        # Create datasets with appropriate transforms
         train_ds = ManifestDataset(self.train_data, transform=TRAIN_TRANSFORM)
         val_ds = ManifestDataset(self.val_data, transform=VAL_TRANSFORM)
         test_ds = ManifestDataset(self.test_data, transform=VAL_TRANSFORM)
@@ -285,16 +280,17 @@ class KaggleDatasetLoader:
         return train_loader, val_loader, test_loader
 
     def get_class_names(self) -> List[str]:
-        return ["real", "ai_generated", "deepfake"]
+        return CLASS_NAMES
 
     def get_split_summary(self) -> Dict:
         """Return a summary of the current data splits."""
         return {
             "manifest_sha256": self.manifest_sha256[:16] if self.manifest_sha256 else "",
             "manifest_version": self.manifest.get("version", "?"),
-            "total_images": self.manifest["total_images"],
-            "split_sizes": self.manifest["split_sizes"],
-            "class_distribution": self.manifest["class_distribution"],
+            # BUG 2 fix: use .get() with fallback
+            "total_images": self.manifest.get("total_images", len(self.manifest.get("images", {}))),
+            "split_sizes": self.manifest.get("split_sizes", {}),
+            "class_distribution": self.manifest.get("class_distribution", {}),
             "resolved": {
                 "train": len(self.train_data),
                 "val": len(self.val_data),

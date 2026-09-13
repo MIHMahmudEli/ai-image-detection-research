@@ -27,9 +27,8 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-HF_REPO = "studyhub991/mfft-checkpoints"
-MANIFEST_REPO = "studyhub991/mfft-master-manifest"
-MANIFEST_PATH = "manifest/split_manifest.json"
+sys.path.insert(0, str(Path(__file__).parent))
+from pipeline_config import HF_CHECKPOINT_REPO, HF_MANIFEST_REPO, MANIFEST_PATH_IN_REPO
 
 
 def get_hf_token():
@@ -63,8 +62,8 @@ def main():
     try:
         from huggingface_hub import hf_hub_download
         path = hf_hub_download(
-            repo_id=MANIFEST_REPO,
-            filename=MANIFEST_PATH,
+            repo_id=HF_MANIFEST_REPO,
+            filename=MANIFEST_PATH_IN_REPO,
             repo_type="model",
             token=hf_token,
         )
@@ -83,7 +82,7 @@ def main():
     api = HfApi(token=hf_token)
 
     try:
-        files = list(api.list_repo_files(repo_id=HF_REPO, repo_type="model"))
+        files = list(api.list_repo_files(repo_id=HF_CHECKPOINT_REPO, repo_type="model"))
     except Exception as e:
         print(f"  ERROR listing repo: {e}")
         print("  (Repo may be empty or not exist yet)")
@@ -94,7 +93,7 @@ def main():
 
     if not state_files:
         print("\n  No runs found in checkpoint repo.")
-        print(f"  Repo: https://huggingface.co/{HF_REPO}")
+        print(f"  Repo: https://huggingface.co/{HF_CHECKPOINT_REPO}")
         return
 
     print(f"\n  Found {len(state_files)} run(s)")
@@ -116,7 +115,7 @@ def main():
         try:
             from huggingface_hub import hf_hub_download
             local_path = hf_hub_download(
-                repo_id=HF_REPO,
+                repo_id=HF_CHECKPOINT_REPO,
                 filename=state_file,
                 repo_type="model",
                 token=hf_token,
@@ -180,7 +179,7 @@ def main():
         best = max(runs_data, key=lambda r: r["best_val_macro_f1"])
         print(f"\n  Best model: {best['run_id']} (val_macro_f1={best['best_val_macro_f1']:.4f})")
 
-    print(f"\nCheckpoint repo: https://huggingface.co/{HF_REPO}")
+    print(f"\nCheckpoint repo: https://huggingface.co/{HF_CHECKPOINT_REPO}")
 
 
 if __name__ == "__main__":

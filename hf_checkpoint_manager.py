@@ -32,11 +32,9 @@ from datetime import datetime
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass, asdict
 
-logger = logging.getLogger(__name__)
+from pipeline_config import HF_CHECKPOINT_REPO, HF_MANIFEST_REPO, MANIFEST_PATH_IN_REPO
 
-HF_REPO = "studyhub991/mfft-checkpoints"
-MANIFEST_REPO = "studyhub991/mfft-master-manifest"
-MANIFEST_PATH = "manifest/split_manifest.json"
+logger = logging.getLogger(__name__)
 
 
 def _find_hf_token() -> str:
@@ -126,7 +124,7 @@ class HFCheckpointManager:
     def __init__(
         self,
         hf_token: str = "",
-        hf_repo: str = HF_REPO,
+        hf_repo: str = HF_CHECKPOINT_REPO,
         run_id: str = "",
         manifest_sha256: str = "",
     ):
@@ -357,8 +355,8 @@ class HFCheckpointManager:
         try:
             from huggingface_hub import hf_hub_download
             path = hf_hub_download(
-                repo_id=MANIFEST_REPO,
-                filename=MANIFEST_PATH,
+                repo_id=HF_MANIFEST_REPO,
+                filename=MANIFEST_PATH_IN_REPO,
                 repo_type="model",
                 token=self.hf_token,
             )

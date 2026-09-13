@@ -10,9 +10,6 @@ Must be run deliberately — never called automatically.
 Usage (on Kaggle, after attaching new datasets):
     !python extend_manifest.py
 
-Usage (locally, with local CSV):
-    python extend_manifest.py --local-csv path/to/new_shards.csv
-
 What it does:
   1. Downloads current manifest from HF
   2. Discovers mounted shards NOT already in shards_used
@@ -30,22 +27,15 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
-from split_manifest_manager import (
-    SplitManifestManager,
-    stable_image_id,
-    compute_manifest_sha256,
-    LABEL_MAP,
-    CLASS_NAMES,
-    KAGGLE_DATASETS,
-    KAGGLE_INPUT_ROOT,
-    SEED,
-    IMG_EXTENSIONS,
+from pipeline_config import (
+    HF_MANIFEST_REPO, MANIFEST_PATH_IN_REPO, KAGGLE_INPUT_ROOT,
+    SEED, LABEL_MAP, CLASS_NAMES, IMG_EXTENSIONS, KAGGLE_DATASETS,
 )
-
-HF_MANIFEST_REPO = "studyhub991/mfft-master-manifest"
-MANIFEST_PATH = "manifest/split_manifest.json"
+from split_manifest_manager import (
+    stable_image_id, compute_manifest_sha256,
+)
 
 
 def extend_manifest(
@@ -69,13 +59,40 @@ def extend_manifest(
     print("Extending Split Manifest")
     print("=" * 60)
 
-    mgr = SplitManifestManager(hf_token=hf_token, input_root=input_root)
+    # Auto-discover token
+    if hf_token is None:
+        try:
+            from kaggle_secrets import UserSecretsClient
+            hf_token = UserSecretsClient().get_secret("HF_TOKEN")
+        except Exception:
+            hf_token = os.environ.get("HF_TOKEN")
+        if not hf_token:
+            env_path = Path(__file__).parent / ".env"
+            if env_path.exists():
+                with open(env_path) as f:
+                    for line in f:
+                        if line.startswith("hf="):
+                            hf_token = line.strip().split("=", 1)[1]
+                            break
+        if not hf_token:
+            raise ValueError("HF_TOKEN not found")
+
+    from huggingface_hub import hf_hub_download, HfApi
 
     # 1. Download current manifest
     print("\n[1] Downloading current manifest from HF...")
-    current_manifest, current_sha256 = mgr.download()
+    path = hf_hub_download(
+        repo_id=HF_MANIFEST_REPO,
+        filename=MANIFEST_PATH_IN_REPO,
+        repo_type="model",
+        token=hf_token,
+    )
+    with open(path) as f:
+        current_manifest = json.load(f)
+    current_sha256 = compute_manifest_sha256(current_manifest)
+
     print(f"  Version: {current_manifest['version']}")
-    print(f"  Images: {current_manifest['total_images']}")
+    print(f"  Images: {current_manifest.get('total_images', '?')}")
     print(f"  Shards used: {current_manifest['shards_used']}")
     print(f"  Split sizes: {current_manifest['split_sizes']}")
 
@@ -139,9 +156,6 @@ def extend_manifest(
     labels = [r["label_int"] for r in new_rows]
     holdout = new_val_ratio + new_test_ratio
 
-    new_test_count = max(1, int(len(new_rows) * holdout))
-    new_val_count = max(1, int(len(new_rows) * new_val_ratio))
-
     if len(new_rows) >= 3:
         train_val_idx, test_idx = train_test_split(
             list(range(len(new_rows))), test_size=holdout,
@@ -192,8 +206,10 @@ def extend_manifest(
         s = row["split"]
         current_manifest["split_sizes"][s] = current_manifest["split_sizes"].get(s, 0) + 1
 
-    current_manifest["version"] = new_version
+    # BUG 2 fix: recompute total_images
     current_manifest["total_images"] = len(current_manifest["images"])
+
+    current_manifest["version"] = new_version
 
     # Recompute overall class distribution
     all_labels = [v["label"] for v in current_manifest["images"].values()]
@@ -215,9 +231,7 @@ def extend_manifest(
 
     # 5. Archive old manifest, upload new
     print(f"\n[5] Archiving old manifest (v{old_version}) and uploading new (v{new_version})...")
-    from huggingface_hub import HfApi
-
-    api = HfApi(token=mgr.hf_token)
+    api = HfApi(token=hf_token)
     api.create_repo(HF_MANIFEST_REPO, repo_type="model", exist_ok=True)
 
     # Save old manifest locally, upload as archive
@@ -240,11 +254,11 @@ def extend_manifest(
 
     api.upload_file(
         path_or_fileobj=str(new_path),
-        path_in_repo=MANIFEST_PATH,
+        path_in_repo=MANIFEST_PATH_IN_REPO,
         repo_id=HF_MANIFEST_REPO,
         repo_type="model",
     )
-    print(f"  Uploaded: {MANIFEST_PATH} (v{new_version})")
+    print(f"  Uploaded: {MANIFEST_PATH_IN_REPO} (v{new_version})")
 
     print(f"\n{'='*60}")
     print(f"Done! Manifest extended from v{old_version} to v{new_version}")

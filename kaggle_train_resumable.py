@@ -37,9 +37,6 @@ SETUP:
 GITHUB_REPO_URL = "https://github.com/MIHMahmudEli/ai-image-detection-research.git"
 GITHUB_COMMIT_SHA = "main"
 
-HF_REPO_ID = "studyhub991/mfft-checkpoints"
-HF_MANIFEST_REPO = "studyhub991/mfft-master-manifest"
-
 MAX_EPOCHS = 40
 PATIENCE = 8
 IMAGE_SIZE = 224
@@ -78,6 +75,7 @@ sys.path.insert(0, str(REPO_DIR))
 subprocess.run(["pip", "install", "-q", "huggingface_hub", "open_clip_torch", "scipy", "python-dotenv"], check=False)
 
 # ── Step 3: Imports ──
+from pipeline_config import HF_CHECKPOINT_REPO, HF_MANIFEST_REPO
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -235,7 +233,7 @@ scaler = GradScaler(enabled=torch.cuda.is_available())
 # ── Checkpoint Manager (run_id-namespaced) ──
 hf_mgr = HFCheckpointManager(
     hf_token=hf_token,
-    hf_repo=HF_REPO_ID,
+    hf_repo=HF_CHECKPOINT_REPO,
     run_id=run_id,
     manifest_sha256=manifest_sha256,
 )
@@ -512,4 +510,4 @@ with open(results_path, "w") as f:
     json.dump(results, f, indent=2, default=str)
 
 print(f"\nResults: {results_path}")
-print(f"Checkpoints: https://huggingface.co/{HF_REPO_ID}/tree/main/runs/{run_id}")
+print(f"Checkpoints: https://huggingface.co/{HF_CHECKPOINT_REPO}/tree/main/runs/{run_id}")

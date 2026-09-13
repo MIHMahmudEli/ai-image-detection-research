@@ -25,34 +25,13 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional, Tuple, List
 
+from pipeline_config import (
+    HF_MANIFEST_REPO, MANIFEST_PATH_IN_REPO, KAGGLE_INPUT_ROOT,
+    SEED, VAL_SPLIT, TEST_SPLIT, LABEL_MAP, CLASS_NAMES,
+    IMG_EXTENSIONS, KAGGLE_DATASETS,
+)
+
 logger = logging.getLogger(__name__)
-
-HF_MANIFEST_REPO = "studyhub991/mfft-master-manifest"
-MANIFEST_PATH = "manifest/split_manifest.json"
-KAGGLE_INPUT_ROOT = Path("/kaggle/input")
-
-SEED = 42
-VAL_SPLIT = 0.15
-TEST_SPLIT = 0.15
-
-LABEL_MAP = {"real": 0, "ai_generated": 1, "deepfake": 2}
-CLASS_NAMES = ["real", "ai_generated", "deepfake"]
-IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-
-# Kaggle mount slug -> (label, image_subdir inside the mount)
-KAGGLE_DATASETS = {
-    "stable-diffusion":                 ("ai_generated", "Stable Diffusion/images"),
-    "places365":                        ("real",          "train"),
-    "open-images-v7-dataset":           ("real",          "Open-Images-V7-Dataset/open-images-v7/train/images"),
-    "ntire2026":                        ("real",          "NTIRE2026"),
-    "midjourney":                       ("ai_generated",  "Midjourney/Datasetfordream"),
-    "mfft-real":                        ("real",          "Mfft_real"),
-    "genimage-ai":                      ("ai_generated",  "genimage_ai"),
-    "faceforensics":                    ("deepfake",      "cropped_images"),
-    "dfdc-faces-of-the-train-sample":   ("deepfake",      "train/fake"),
-    "dall-e3":                          ("ai_generated",  "DALL-E3"),
-    "celebdf-v2image-dataset":          ("deepfake",      "Celeb_V2"),
-}
 
 
 def stable_image_id(filename: str, shard: str, label: str) -> str:
@@ -85,6 +64,21 @@ def _find_hf_token() -> str:
     raise ValueError("HF_TOKEN not found. Set as Kaggle Secret or in .env")
 
 
+def build_mount_index(mount_path: Path, shard: str, label: str) -> Dict[str, Path]:
+    """
+    Walk a mounted shard directory ONCE, building {image_id: path}.
+    This is O(files_in_shard) instead of O(files_in_shard) per lookup.
+    """
+    index = {}
+    for img_path in mount_path.rglob("*"):
+        if img_path.suffix.lower() in IMG_EXTENSIONS and img_path.is_file():
+            if img_path.stat().st_size == 0:
+                continue
+            img_id = stable_image_id(img_path.name, shard, label)
+            index[img_id] = img_path
+    return index
+
+
 class SplitManifestManager:
     """
     Manages the frozen split manifest: download-or-bootstrap, validation,
@@ -94,23 +88,24 @@ class SplitManifestManager:
     def __init__(
         self,
         hf_token: str = None,
-        hf_repo: str = HF_MANIFEST_REPO,
+        hf_repo: str = None,
         run_id: str = "",
         input_root: str = None,
     ):
         self.hf_token = hf_token or _find_hf_token()
-        self.hf_repo = hf_repo
+        self.hf_repo = hf_repo or HF_MANIFEST_REPO
         self.run_id = run_id
         self.input_root = Path(input_root) if input_root else KAGGLE_INPUT_ROOT
         self._manifest: Optional[dict] = None
         self._sha256: Optional[str] = None
+        self._mount_indices: Dict[str, Dict[str, Path]] = {}
 
     def get_or_bootstrap(self) -> Tuple[dict, str]:
         """
         Main entry point. Returns (manifest_dict, manifest_sha256).
 
-        If the manifest exists on HF → download and return it.
-        If it does NOT exist → bootstrap from currently mounted datasets,
+        If the manifest exists on HF -> download and return it.
+        If it does NOT exist -> bootstrap from currently mounted datasets,
         upload to HF, and return it.
         """
         # Try download first
@@ -152,7 +147,7 @@ class SplitManifestManager:
 
         path = hf_hub_download(
             repo_id=self.hf_repo,
-            filename=MANIFEST_PATH,
+            filename=MANIFEST_PATH_IN_REPO,
             repo_type="model",
             token=self.hf_token,
         )
@@ -257,6 +252,7 @@ class SplitManifestManager:
             "created_by_run": self.run_id,
             "seed": SEED,
             "shards_used": shards_used,
+            "total_images": total,
             "class_distribution": class_dist,
             "split_sizes": {
                 "train": len(train_idx),
@@ -294,53 +290,49 @@ class SplitManifestManager:
 
         api.upload_file(
             path_or_fileobj=str(tmp),
-            path_in_repo=MANIFEST_PATH,
+            path_in_repo=MANIFEST_PATH_IN_REPO,
             repo_id=self.hf_repo,
             repo_type="model",
         )
-        print(f"  Uploaded: {MANIFEST_PATH} -> {self.hf_repo}")
+        print(f"  Uploaded: {MANIFEST_PATH_IN_REPO} -> {self.hf_repo}")
 
     # ------------------------------------------------------------------
-    # Path resolution
+    # Mount index building (BUG 1 fix)
     # ------------------------------------------------------------------
 
-    def discover_mounts(self) -> Dict[str, Path]:
-        """Discover all mounted Kaggle datasets."""
-        mounts = {}
-        if not self.input_root.exists():
-            return mounts
-        for entry in sorted(self.input_root.iterdir()):
-            if entry.is_dir():
-                mounts[entry.name] = entry
-        return mounts
-
-    def resolve_path(self, image_id: str, manifest: dict) -> Optional[Path]:
+    def build_all_mount_indices(self, manifest: dict):
         """
-        Resolve an image path from the manifest against mounted datasets.
-        Uses path_hint as a guide but does fuzzy search as fallback.
+        Build per-shard lookup indices ONCE. Call this before resolve_path().
+        Each index maps image_id -> Path, built by walking the mount dir once.
         """
-        info = manifest["images"].get(image_id)
-        if info is None:
-            return None
+        self._mount_indices = {}
+        shards_needed = set(info["shard"] for info in manifest["images"].values())
 
-        mounts = self.discover_mounts()
+        for shard in shards_needed:
+            if shard not in KAGGLE_DATASETS:
+                continue
+            label, subdir = KAGGLE_DATASETS[shard]
+            mount_dir = self.input_root / shard
+            if not mount_dir.exists():
+                continue
+
+            image_root = mount_dir / subdir
+            if not image_root.exists():
+                image_root = mount_dir
+
+            idx = build_mount_index(image_root, shard, label)
+            self._mount_indices[shard] = idx
+            print(f"  Index built: {shard} -> {len(idx)} images")
+
+    def resolve_path(self, image_id: str, info: dict) -> Optional[Path]:
+        """
+        O(1) lookup via pre-built mount index.
+        build_all_mount_indices() must be called first.
+        """
         shard = info["shard"]
-
-        if shard in mounts:
-            mount = mounts[shard]
-            # Try rglob by filename (fast enough for most shards)
-            for img in mount.rglob("*"):
-                if img.suffix.lower() in IMG_EXTENSIONS and img.is_file():
-                    if stable_image_id(img.name, shard, info["label"]) == image_id:
-                        return img
-
-        # Fallback: search all mounts
-        for mount in mounts.values():
-            for img in mount.rglob("*"):
-                if img.suffix.lower() in IMG_EXTENSIONS and img.is_file():
-                    if stable_image_id(img.name, shard, info["label"]) == image_id:
-                        return img
-
+        idx = self._mount_indices.get(shard)
+        if idx is not None:
+            return idx.get(image_id)
         return None
 
     def verify_against_manifest(
