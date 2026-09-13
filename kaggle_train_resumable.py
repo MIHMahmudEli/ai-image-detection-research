@@ -91,6 +91,12 @@ from split_manifest_manager import SplitManifestManager
 from kaggle_dataset_loader import KaggleDatasetLoader
 from model.src.model import build_mfft, count_parameters
 
+try:
+    from tqdm.notebook import tqdm
+except ImportError:
+    subprocess.run(["pip", "install", "-q", "tqdm"], check=False)
+    from tqdm.notebook import tqdm
+
 CLASS_NAMES = ["real", "ai_generated", "deepfake"]
 
 # ── Seed ──
@@ -296,7 +302,8 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
     train_correct = 0
     train_total = 0
 
-    for images, labels in train_loader:
+    pbar = tqdm(train_loader, desc=f"  Train {epoch:3d}/{MAX_EPOCHS}", leave=False)
+    for images, labels in pbar:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
 
@@ -315,6 +322,11 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
         train_loss += loss.item()
         train_correct += (logits.argmax(dim=-1) == labels).sum().item()
         train_total += labels.size(0)
+        pbar.set_postfix({
+            "loss": f"{train_loss / (train_total / BATCH_SIZE):.4f}",
+            "acc": f"{train_correct / train_total * 100:.2f}%",
+            "lr": f"{scheduler.get_last_lr()[0]:.2e}",
+        })
 
     train_acc = train_correct / train_total * 100
     avg_train_loss = train_loss / len(train_loader)
@@ -327,7 +339,8 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
     all_preds, all_labels, all_probs = [], [], []
 
     with torch.no_grad():
-        for images, labels in val_loader:
+        pbar = tqdm(val_loader, desc=f"  Val   {epoch:3d}/{MAX_EPOCHS}", leave=False)
+        for images, labels in pbar:
             images = images.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
 
@@ -369,23 +382,6 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
     epoch_time = time.time() - epoch_start
     elapsed = time.time() - start_time
 
-    print(
-        f"Epoch {epoch:3d}/{MAX_EPOCHS} | "
-        f"Train: {avg_train_loss:.4f}/{train_acc:.2f}% | "
-        f"Val: {avg_val_loss:.4f}/{val_acc:.2f}% | "
-        f"MacroF1: {macro_f1:.2f} | AUC: {auc:.4f} | "
-        f"Spec: {specificity:.2f}% | {epoch_time:.0f}s"
-    )
-
-    # ── Update state ──
-    state.current_epoch = epoch
-    state.train_accuracy = train_acc
-    state.val_accuracy = val_acc
-    state.val_macro_f1 = macro_f1 / 100
-    state.val_auc = auc
-    state.val_loss = avg_val_loss
-    state.total_train_time = elapsed
-
     # ── Early stopping logic ──
     improved = False
     if macro_f1 / 100 > state.best_val_macro_f1:
@@ -400,6 +396,26 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
         state.patience_counter += 1
 
     state.status = "training"
+
+    # ── Epoch summary ──
+    best_marker = " *" if improved else ""
+    print(
+        f"  Epoch {epoch:3d}/{MAX_EPOCHS} | "
+        f"train_loss: {avg_train_loss:.4f} | train_acc: {train_acc:.2f}% | "
+        f"val_loss: {avg_val_loss:.4f} | val_acc: {val_acc:.2f}% | "
+        f"macro_f1: {macro_f1:.2f} | auc: {auc:.4f} | "
+        f"lr: {scheduler.get_last_lr()[0]:.2e} | {epoch_time:.0f}s{best_marker}"
+    )
+    if improved:
+        print(f"           >>> Best model saved (macro_f1={macro_f1:.2f}%)")
+
+    state.current_epoch = epoch
+    state.train_accuracy = train_acc
+    state.val_accuracy = val_acc
+    state.val_macro_f1 = macro_f1 / 100
+    state.val_auc = auc
+    state.val_loss = avg_val_loss
+    state.total_train_time = elapsed
 
     # ── Save state + best checkpoint ──
     state_dict = {
