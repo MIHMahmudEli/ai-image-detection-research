@@ -119,19 +119,12 @@ def extend_manifest(
                         "label_int": LABEL_MAP.get(lbl, 0),
                     })
     else:
-        from split_manifest_manager import match_mount, _find_mount_path, _load_mount_overrides
+        from split_manifest_manager import match_mount, _find_mount_path, _load_mount_overrides, _discover_mounted_slugs
 
         root = Path(input_root) if input_root else KAGGLE_INPUT_ROOT
 
-        # Discover actual mount names
-        all_mount_names = []
-        if root.exists():
-            all_mount_names = [d.name for d in root.iterdir() if d.is_dir()]
-            datasets_dir = root / "datasets"
-            if datasets_dir.exists():
-                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-            all_mount_names = list(set(all_mount_names))
-
+        # Discover slug-level mounts (BUG A fix: walk 2 levels deep)
+        slug_path_map = _discover_mounted_slugs(root)
         overrides = _load_mount_overrides()
 
         for slug, (label, subdir) in KAGGLE_DATASETS.items():
@@ -139,7 +132,7 @@ def extend_manifest(
             if slug in overrides:
                 mount_dir = _find_mount_path(root, overrides[slug])
             else:
-                mount_dir, _, _ = match_mount(slug, all_mount_names, root)
+                mount_dir, _, _ = match_mount(slug, slug_path_map, root)
 
             if mount_dir is None:
                 continue

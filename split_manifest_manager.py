@@ -135,7 +135,10 @@ def _token_overlap_score(a: str, b: str) -> float:
 
 
 def _find_mount_path(input_root: Path, mount_name: str) -> Optional[Path]:
-    """Resolve a mount name to a real Path, checking top-level and datasets/."""
+    """
+    Resolve a mount name to a real Path.
+    Checks: top-level, datasets/, and owner/*/<slug> nesting (depth 2).
+    """
     candidates = [
         input_root / mount_name,
         input_root / "datasets" / mount_name,
@@ -143,57 +146,107 @@ def _find_mount_path(input_root: Path, mount_name: str) -> Optional[Path]:
     for c in candidates:
         if c.exists():
             return c
+    # Depth-2 search: /kaggle/input/<owner>/<slug>
+    if input_root.exists():
+        for owner_dir in input_root.iterdir():
+            if owner_dir.is_dir() and owner_dir.name != "datasets":
+                candidate = owner_dir / mount_name
+                if candidate.exists():
+                    return candidate
+    # Depth-2 under datasets/ too
+    datasets_dir = input_root / "datasets"
+    if datasets_dir.exists():
+        for owner_dir in datasets_dir.iterdir():
+            if owner_dir.is_dir():
+                candidate = owner_dir / mount_name
+                if candidate.exists():
+                    return candidate
     return None
+
+
+def _discover_mounted_slugs(input_root: Path) -> Dict[str, Path]:
+    """
+    Walk /kaggle/input to depth 2, collecting slug-level directories.
+    Kaggle nests datasets as /kaggle/input/<owner>/<slug>/ or
+    /kaggle/input/datasets/<owner>/<slug>/.
+
+    Returns {slug_name: full_path} for every directory found at the
+    slug level (depth 2 under input_root).
+    """
+    slug_map: Dict[str, List[Path]] = {}
+
+    def _scan_directory(base: Path):
+        """Scan base for owner/<slug> pairs."""
+        if not base.exists():
+            return
+        for owner_dir in base.iterdir():
+            if not owner_dir.is_dir():
+                continue
+            # Check if owner_dir contains subdirectories (slug level)
+            for child in owner_dir.iterdir():
+                if child.is_dir():
+                    slug_name = child.name
+                    if slug_name not in slug_map:
+                        slug_map[slug_name] = []
+                    slug_map[slug_name].append(child)
+
+    # Scan /kaggle/input/<owner>/<slug>
+    _scan_directory(input_root)
+    # Scan /kaggle/input/datasets/<owner>/<slug>
+    _scan_directory(input_root / "datasets")
+
+    # Deduplicate: if a slug appears under multiple owners, warn and pick first
+    result: Dict[str, Path] = {}
+    for slug, paths in slug_map.items():
+        if len(paths) > 1:
+            print(f"  WARNING: slug '{slug}' found under multiple owners: {[p.parent.name for p in paths]}")
+            print(f"           Using first: {paths[0]}")
+        result[slug] = paths[0]
+
+    return result
 
 
 def match_mount(
     slug: str,
-    actual_mounts: List[str],
+    slug_path_map: Dict[str, Path],
     input_root: Path,
 ) -> Tuple[Optional[Path], str, List[str]]:
     """
-    Layered matching for a single expected slug against actual mount names.
+    Layered matching for a single expected slug against discovered slug-level mounts.
+
+    Args:
+        slug: Expected slug name (e.g. "stable-diffusion")
+        slug_path_map: Dict of {discovered_slug_name: full_path} from _discover_mounted_slugs()
+        input_root: Root input directory (unused, kept for API compat)
 
     Returns:
         (matched_path, match_method, did_you_mean_candidates)
         matched_path is None if no match found.
     """
-    datasets_dir = input_root / "datasets"
-
-    # Collect all candidate names (top-level + nested)
-    all_candidates = list(set(actual_mounts))
+    all_candidates = list(slug_path_map.keys())
 
     # Layer 1: Exact match
-    for cand in all_candidates:
-        if slug == cand:
-            path = _find_mount_path(input_root, cand)
-            if path:
-                return path, "exact", []
+    if slug in slug_path_map:
+        return slug_path_map[slug], "exact", []
 
     # Layer 2: Case-insensitive match
     slug_lower = slug.lower()
     for cand in all_candidates:
         if slug_lower == cand.lower():
-            path = _find_mount_path(input_root, cand)
-            if path:
-                return path, "case-insensitive", []
+            return slug_path_map[cand], "case-insensitive", []
 
     # Layer 3: Normalized match (replace [-_ ] with single separator)
     slug_norm = _normalize_slug(slug)
     for cand in all_candidates:
         if slug_norm == _normalize_slug(cand):
-            path = _find_mount_path(input_root, cand)
-            if path:
-                return path, "normalized", []
+            return slug_path_map[cand], "normalized", []
 
-    # Layer 4: Contiguous substring match (original behavior)
+    # Layer 4: Contiguous substring match
     for cand in all_candidates:
         if slug in cand or cand in slug:
-            path = _find_mount_path(input_root, cand)
-            if path:
-                return path, "substring", []
+            return slug_path_map[cand], "substring", []
 
-    # Layer 5: Token-overlap match (all tokens of slug appear in cand)
+    # Layer 5: Token-overlap match
     best_token_match = None
     best_score = 0.0
     did_you_mean = []
@@ -206,9 +259,7 @@ def match_mount(
             best_token_match = cand
 
     if best_token_match:
-        path = _find_mount_path(input_root, best_token_match)
-        if path:
-            return path, f"token-overlap({best_score:.0%})", did_you_mean
+        return slug_path_map[best_token_match], f"token-overlap({best_score:.0%})", did_you_mean
 
     return None, "no-match", did_you_mean
 
@@ -376,17 +427,10 @@ class SplitManifestManager:
         # ── Load overrides (FIX 3) ──
         overrides = _load_mount_overrides()
 
-        # ── Discover actual mount names ──
+        # ── Discover actual mount names (BUG A fix: walk 2 levels deep) ──
         input_root = self.input_root
-        all_mount_names: List[str] = []
-        if input_root.exists():
-            all_mount_names = [d.name for d in input_root.iterdir() if d.is_dir()]
-            datasets_dir = input_root / "datasets"
-            if datasets_dir.exists():
-                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-            all_mount_names = list(set(all_mount_names))
-
-        print(f"  Actual mounts found: {all_mount_names}")
+        slug_path_map = _discover_mounted_slugs(input_root)
+        print(f"  Discovered slug-level mounts: {list(slug_path_map.keys())}")
 
         # ── Match each expected slug (FIX 2 + FIX 3) ──
         slug_map: Dict[str, Path] = {}
@@ -405,12 +449,12 @@ class SplitManifestManager:
                 else:
                     print(f"  {slug}: OVERRIDDEN -> {actual_name} but path not found!")
 
-            # FIX 2: Layered matching
-            matched_path, method, did_you_mean = match_mount(slug, all_mount_names, input_root)
+            # FIX 2: Layered matching against slug-level names
+            matched_path, method, did_you_mean = match_mount(slug, slug_path_map, input_root)
             match_info[slug] = {"method": method, "path": str(matched_path) if matched_path else None, "did_you_mean": did_you_mean}
             if matched_path:
                 slug_map[slug] = matched_path
-                print(f"  {slug}: MATCHED ({method}) -> {matched_path.name}")
+                print(f"  {slug}: MATCHED ({method}) -> {matched_path}")
             else:
                 candidates_str = f" (did you mean: {', '.join(did_you_mean[:3])})" if did_you_mean else ""
                 print(f"  {slug}: NOT MATCHED{candidates_str}")
@@ -576,16 +620,10 @@ class SplitManifestManager:
             if path:
                 return path
 
-        # Discover mounts
-        all_mount_names: List[str] = []
-        if self.input_root.exists():
-            all_mount_names = [d.name for d in self.input_root.iterdir() if d.is_dir()]
-            datasets_dir = self.input_root / "datasets"
-            if datasets_dir.exists():
-                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-            all_mount_names = list(set(all_mount_names))
+        # Discover slug-level mounts (BUG A fix)
+        slug_path_map = _discover_mounted_slugs(self.input_root)
 
-        matched_path, _, _ = match_mount(shard, all_mount_names, self.input_root)
+        matched_path, _, _ = match_mount(shard, slug_path_map, self.input_root)
         return matched_path
 
     def build_all_mount_indices(self, manifest: dict):

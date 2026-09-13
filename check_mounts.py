@@ -25,6 +25,7 @@ from split_manifest_manager import (
     _load_mount_overrides,
     match_mount,
     _find_mount_path,
+    _discover_mounted_slugs,
 )
 from pipeline_config import KAGGLE_DATASETS, KAGGLE_INPUT_ROOT
 
@@ -45,19 +46,11 @@ def check_mounts(input_root: str = None) -> bool:
     # 2. Load overrides (FIX 3)
     overrides = _load_mount_overrides()
 
-    # 3. Discover actual mount names
-    all_mount_names = []
-    if root.exists():
-        all_mount_names = [d.name for d in root.iterdir() if d.is_dir()]
-        datasets_dir = root / "datasets"
-        if datasets_dir.exists():
-            all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-        all_mount_names = list(set(all_mount_names))
-
-    print(f"  Actual mounts: {all_mount_names}\n")
+    # 3. Discover slug-level mounts (BUG A fix: walk 2 levels deep)
+    slug_path_map = _discover_mounted_slugs(root)
+    print(f"  Discovered slug-level mounts: {list(slug_path_map.keys())}\n")
 
     # 4. Match each expected slug (FIX 2)
-    all_matched = True
     results = []
 
     for slug, (label, subdir) in KAGGLE_DATASETS.items():
@@ -69,18 +62,13 @@ def check_mounts(input_root: str = None) -> bool:
                 results.append((slug, "OVERRIDDEN", str(path), actual_name, []))
             else:
                 results.append((slug, "OVERRIDE_MISSING", str(path), actual_name, []))
-                all_matched = False
             continue
 
-        matched_path, method, did_you_mean = match_mount(slug, all_mount_names, root)
+        matched_path, method, did_you_mean = match_mount(slug, slug_path_map, root)
         if matched_path:
-            # Verify subdir exists
-            target = matched_path / subdir
-            sub_ok = target.exists() or True  # fallback to mount root
             results.append((slug, f"MATCHED ({method})", str(matched_path), subdir, did_you_mean))
         else:
             results.append((slug, "NOT MATCHED", None, None, did_you_mean))
-            all_matched = False
 
     # 5. Print summary table
     print(f"\n{'='*80}")
@@ -92,19 +80,25 @@ def check_mounts(input_root: str = None) -> bool:
             print(f"    Did you mean: {', '.join(dym[:3])}")
     print(f"{'='*80}")
 
-    # 6. Result
+    # 6. Compute summary FROM the results table (BUG B fix)
     n_ok = sum(1 for _, s, _, _, _ in results if "MATCHED" in s or "OVERRIDDEN" in s)
+    n_not_ok = sum(1 for _, s, _, _, _ in results if s == "NOT MATCHED" or s == "OVERRIDE_MISSING")
     n_total = len(results)
 
-    if all_matched:
+    # Sanity assertion: counts must be consistent
+    assert n_ok + n_not_ok == n_total, (
+        f"Count mismatch: {n_ok} ok + {n_not_ok} not_ok != {n_total} total"
+    )
+
+    if n_not_ok == 0:
         print(f"\n  ALL {n_total}/{n_total} datasets matched. Ready to train!")
     else:
-        print(f"\n  {n_ok}/{n_total} datasets matched. {n_total - n_ok} MISSING.")
+        print(f"\n  {n_ok}/{n_total} datasets matched. {n_not_ok} MISSING.")
         print("\n  To fix, create a MOUNT_OVERRIDES_JSON Kaggle Secret with:")
         print('  {"expected-slug": "actual-folder-name-from-mount-tree-above"}')
         print("\n  Or re-attach the missing datasets via Kaggle UI > Add Input.")
 
-    return all_matched
+    return n_not_ok == 0
 
 
 if __name__ == "__main__":
