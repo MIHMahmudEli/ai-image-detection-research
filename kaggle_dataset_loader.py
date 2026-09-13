@@ -5,17 +5,19 @@ Downloads the master manifest from HuggingFace Hub and resolves image
 paths from mounted Kaggle datasets. Every training session uses the
 exact same split indices, ensuring fair evaluation across all models.
 
+First session: build manifest with build_master_manifest.py
+Later sessions: this loader downloads manifest from HF automatically.
+
 Usage:
     from kaggle_dataset_loader import KaggleDatasetLoader
 
-    loader = KaggleDatasetLoader(hf_token=os.environ["HF_TOKEN"])
+    loader = KaggleDatasetLoader()
     train_df, val_df, test_df = loader.load()
     train_loader, val_loader = loader.to_dataloaders(image_size=224)
 """
 
 import os
 import json
-import hashlib
 import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
@@ -27,17 +29,17 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 KAGGLE_INPUT_ROOT = Path("/kaggle/input")
-HF_REPO_ID = "studyhub991/mfft-master-manifest"
+HF_MANIFEST_REPO = "studyhub991/mfft-master-manifest"
 CLASS_NAMES = ["real", "ai_generated", "deepfake"]
 
 
 class KaggleDatasetLoader:
     """
-    Loads the master manifest from HuggingFace and resolves image paths
+    Downloads the master manifest from HF Hub and resolves image paths
     from mounted Kaggle datasets.
 
     Every session gets the exact same train/val/test split because:
-    1. The manifest defines deterministic split indices
+    1. The manifest defines deterministic split indices (seed=42)
     2. Each session resolves paths from its mounted datasets
     3. Only images present in BOTH the manifest AND the mount are used
     """
@@ -45,42 +47,47 @@ class KaggleDatasetLoader:
     def __init__(
         self,
         hf_token: str = None,
-        hf_repo: str = HF_REPO_ID,
+        hf_manifest_repo: str = HF_MANIFEST_REPO,
         input_root: str = None,
         image_size: int = 224,
     ):
-        self.hf_token = hf_token or os.environ.get("HF_TOKEN")
-        self.hf_repo = hf_repo
+        self.hf_token = hf_token or self._find_hf_token()
+        self.hf_manifest_repo = hf_manifest_repo
         self.input_root = Path(input_root) if input_root else KAGGLE_INPUT_ROOT
         self.image_size = image_size
         self._manifest = None
-        self._mount_map: Dict[str, Path] = {}
+        self._mount_cache: Dict[str, Path] = {}
 
-    def _get_hf_token(self) -> str:
-        """Get HF token from various sources."""
-        if self.hf_token:
-            return self.hf_token
-
-        # Try Kaggle Secrets
+    def _find_hf_token(self) -> str:
+        """Auto-discover HF token from Kaggle Secrets, env, or .env file."""
+        # Kaggle Secrets
         try:
             from kaggle_secrets import UserSecretsClient
             return UserSecretsClient().get_secret("HF_TOKEN")
         except Exception:
             pass
 
-        # Try .env file
-        env_path = Path(__file__).parent / ".env"
-        if env_path.exists():
-            with open(env_path) as f:
-                for line in f:
-                    if line.startswith("hf="):
-                        return line.strip().split("=", 1)[1]
+        # Environment
+        token = os.environ.get("HF_TOKEN")
+        if token:
+            return token
+
+        # .env file
+        for env_path in [
+            Path("/kaggle/working/.env"),
+            Path(__file__).parent / ".env",
+        ]:
+            if env_path.exists():
+                with open(env_path) as f:
+                    for line in f:
+                        if line.startswith("hf="):
+                            return line.strip().split("=", 1)[1]
 
         raise ValueError(
-            "HF_TOKEN not found. Set via:\n"
-            "  1. Kaggle Secret: Name=HF_TOKEN\n"
-            "  2. Environment: export HF_TOKEN=...\n"
-            "  3. .env file: hf=hf_..."
+            "HF_TOKEN not found. Set as:\n"
+            "  Kaggle Secret: Name=HF_TOKEN\n"
+            "  Environment: export HF_TOKEN=...\n"
+            "  .env file: hf=hf_..."
         )
 
     def download_manifest(self) -> dict:
@@ -96,35 +103,32 @@ class KaggleDatasetLoader:
             os.system("pip install huggingface_hub -q")
             from huggingface_hub import hf_hub_download
 
-        token = self._get_hf_token()
-
         try:
             manifest_path = hf_hub_download(
-                repo_id=self.hf_repo,
+                repo_id=self.hf_manifest_repo,
                 filename="master_manifest.json",
                 repo_type="model",
-                token=token,
+                token=self.hf_token,
             )
         except Exception as e:
             raise RuntimeError(
-                f"Failed to download manifest from {self.hf_repo}: {e}\n"
-                "Ensure the HF repo exists and contains master_manifest.json.\n"
-                "Run: python build_master_manifest.py --upload"
+                f"Failed to download manifest from {self.hf_manifest_repo}: {e}\n"
+                "Run build_master_manifest.py first to create the manifest."
             )
 
         with open(manifest_path, "r") as f:
             self._manifest = json.load(f)
 
-        print(f"  Manifest loaded: {self._manifest['sample_count'] if 'sample_count' in self._manifest else len(self._manifest.get('samples', []))} samples")
-        print(f"  Version: {self._manifest.get('version', 'unknown')}")
-        print(f"  Hash: {self._manifest.get('manifest_hash', 'N/A')}")
+        n = len(self._manifest.get("samples", []))
+        h = self._manifest.get("manifest_hash", "N/A")
+        print(f"  Manifest loaded: {n} samples, hash={h}")
 
         return self._manifest
 
     def discover_mounts(self) -> Dict[str, Path]:
-        """Auto-discover all mounted Kaggle datasets."""
-        if self._mount_map:
-            return self._mount_map
+        """Discover all mounted Kaggle datasets."""
+        if self._mount_cache:
+            return self._mount_cache
 
         if not self.input_root.exists():
             logger.warning(f"Kaggle input root not found: {self.input_root}")
@@ -132,82 +136,72 @@ class KaggleDatasetLoader:
 
         for entry in sorted(self.input_root.iterdir()):
             if entry.is_dir():
-                self._mount_map[entry.name] = entry
-                logger.debug(f"  Mounted: {entry.name}")
+                self._mount_cache[entry.name] = entry
 
-        print(f"  Discovered {len(self._mount_map)} mounted datasets: {list(self._mount_map.keys())}")
-        return self._mount_map
+        print(f"  Mounted datasets: {list(self._mount_cache.keys())}")
+        return self._mount_cache
 
-    def resolve_path(self, relative_path: str, kaggle_mount_slug: str) -> Optional[Path]:
+    def resolve_path(self, relative_path: str, mount_slug: str) -> Optional[Path]:
         """
         Resolve an image path from the manifest against mounted Kaggle datasets.
         
         The manifest stores paths like "Stable Diffusion/images/0/custom_0_0.png"
-        which need to be resolved against the Kaggle mount path.
+        which are relative to the mount root at /kaggle/input/<slug>/.
         """
         mounts = self.discover_mounts()
 
-        # Try the specific mount slug first
-        if kaggle_mount_slug and kaggle_mount_slug in mounts:
-            mount_dir = mounts[kaggle_mount_slug]
-            # The mount may have an extra subdirectory
-            # e.g., /kaggle/input/stable-diffusion/Stable Diffusion/images/...
+        # Try the specific mount slug
+        if mount_slug in mounts:
+            mount_dir = mounts[mount_slug]
             candidate = mount_dir / relative_path
             if candidate.exists() and candidate.is_file():
                 return candidate
 
-            # Try without the first directory component (some datasets have nested dirs)
+            # Some mounts have extra nesting - try stripping first dir
             parts = Path(relative_path).parts
             if len(parts) > 1:
                 candidate = mount_dir / Path(*parts[1:])
                 if candidate.exists() and candidate.is_file():
                     return candidate
 
-            # Try flat search - just the filename
+            # Flat filename search as last resort
             filename = Path(relative_path).name
             for img in mount_dir.rglob(filename):
-                if img.is_file():
+                if img.is_file() and img.stat().st_size > 0:
                     return img
 
-        # Try all mounts as fallback
+        # Fallback: search all mounts
         filename = Path(relative_path).name
-        for mount_name, mount_dir in mounts.items():
-            # Direct path
+        for mount_dir in mounts.values():
             candidate = mount_dir / relative_path
             if candidate.exists() and candidate.is_file():
                 return candidate
-
-            # Flat search
             for img in mount_dir.rglob(filename):
-                if img.is_file():
+                if img.is_file() and img.stat().st_size > 0:
                     return img
 
         return None
 
-    def load(self, split: str = "all") -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def load(self) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """
         Load manifest and resolve paths. Returns (train_df, val_df, test_df).
-
-        split: "train", "val", "test", or "all"
         """
         manifest = self.download_manifest()
         samples = manifest.get("samples", [])
         split_info = manifest.get("split", {})
 
         if not samples:
-            raise RuntimeError("Manifest has no samples. Re-run build_master_manifest.py")
+            raise RuntimeError("Manifest has no samples")
 
-        # Get split indices
         train_indices = split_info.get("train_indices", [])
         val_indices = split_info.get("val_indices", [])
         test_indices = split_info.get("test_indices", [])
 
         if not train_indices:
-            raise RuntimeError("Manifest has no split indices. Re-run build_master_manifest.py")
+            raise RuntimeError("Manifest has no split indices")
 
         print(f"\nManifest split: train={len(train_indices)}, val={len(val_indices)}, test={len(test_indices)}")
 
-        # Resolve paths for each split
         def resolve_split(indices, split_name):
             resolved = []
             missing = 0
@@ -233,21 +227,20 @@ class KaggleDatasetLoader:
                 })
 
             if missing > 0:
-                print(f"  {split_name}: {missing}/{len(indices)} images not found on this mount")
+                print(f"  {split_name}: {missing}/{len(indices)} images not on this mount (expected)")
 
-            return pd.DataFrame(resolved)
+            df = pd.DataFrame(resolved)
+            if len(df) > 0:
+                dist = df["label_name"].value_counts().to_dict()
+                print(f"  {split_name}: {len(df)} resolved | {dist}")
+            else:
+                print(f"  {split_name}: 0 resolved")
+
+            return df
 
         train_df = resolve_split(train_indices, "train")
         val_df = resolve_split(val_indices, "val")
         test_df = resolve_split(test_indices, "test")
-
-        # Print summary
-        for name, df in [("train", train_df), ("val", val_df), ("test", test_df)]:
-            if len(df) > 0:
-                dist = df["label_name"].value_counts().to_dict()
-                print(f"  {name}: {len(df)} samples | {dist}")
-            else:
-                print(f"  {name}: 0 samples")
 
         return train_df, val_df, test_df
 
@@ -294,7 +287,6 @@ class KaggleDatasetLoader:
                             continue
                     return torch.zeros(3, image_size, image_size), label
 
-        # Shared transforms (deterministic across all sessions)
         train_transform = transforms.Compose([
             transforms.Resize(image_size + 16),
             transforms.RandomResizedCrop(image_size, scale=(0.85, 1.0)),
@@ -333,12 +325,12 @@ class KaggleDatasetLoader:
         )
 
         print(f"\nDataloaders: train={len(train_dataset)}, val={len(val_dataset)}")
-        print(f"Class counts (train): {dict(Counter(train_labels))}")
+        print(f"Class balance (train): {dict(Counter(train_labels))}")
 
         return train_loader, val_loader
 
     def get_split_info(self) -> dict:
-        """Return split metadata for logging/verification."""
+        """Return split metadata for verification."""
         manifest = self.download_manifest()
         split = manifest.get("split", {})
         return {
