@@ -96,7 +96,7 @@ IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 SEED = 42
 VAL_SPLIT = 0.15
 TEST_SPLIT = 0.15
-HF_MANIFEST_REPO = "studyhub991/mfft-master-manifest"
+HF_MANIFEST_REPO = "MohsinElis/mfft-master-manifest"
 
 
 def file_hash(path: Path, chunk_size: int = 8192) -> str:

@@ -10,11 +10,11 @@ from pathlib import Path
 # Overridable via env var so code changes aren't needed for a new repo.
 HF_MANIFEST_REPO = os.environ.get(
     "HF_MANIFEST_REPO_OVERRIDE",
-    "studyhub991/mfft-master-manifest",
+    "MohsinElis/mfft-master-manifest",
 )
 HF_CHECKPOINT_REPO = os.environ.get(
     "HF_CHECKPOINT_REPO_OVERRIDE",
-    "studyhub991/mfft-checkpoints",
+    "MohsinElis/mfft-checkpoints",
 )
 
 MANIFEST_PATH_IN_REPO = "manifest/split_manifest.json"

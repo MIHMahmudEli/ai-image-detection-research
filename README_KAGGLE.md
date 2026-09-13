@@ -53,7 +53,7 @@ Session 3 (account A, mfft-base):  Epochs 13-24 ──► download manifest → 
 │               ┌─────────────────────────────┐                 │
 │               │    HuggingFace Hub           │                 │
 │               │                              │                 │
-│               │  studyhub991/mfft-checkpoints│                 │
+│               │  MohsinElis/mfft-checkpoints│                 │
 │               │    ├── manifest/split_manifest.json (SHARED)  │
 │               │    ├── runs/<run_id>/...     (PER-RUN)        │
 │               │    │   ├── checkpoints/      │                │
@@ -69,8 +69,8 @@ Session 3 (account A, mfft-base):  Epochs 13-24 ──► download manifest → 
 
 ```bash
 # On huggingface.co, create TWO repos:
-#   1. studyhub991/mfft-checkpoints (Model, private)
-#   2. studyhub991/mfft-master-manifest (Model, private)
+#   1. MohsinElis/mfft-checkpoints (Model, private)
+#   2. MohsinElis/mfft-master-manifest (Model, private)
 ```
 
 ### 2. Set Kaggle Secrets
@@ -179,7 +179,7 @@ manifest/split_manifest.json
 ## HuggingFace Repo Structure
 
 ```
-studyhub991/mfft-checkpoints/
+MohsinElis/mfft-checkpoints/
 ├── manifest/
 │   ├── split_manifest.json              # Frozen split (SHARED)
 │   ├── split_manifest_summary.json      # Human-readable summary
