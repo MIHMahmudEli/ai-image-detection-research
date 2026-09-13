@@ -64,6 +64,15 @@ def check_mounts(input_root: str = None) -> bool:
                 results.append((slug, "OVERRIDE_MISSING", str(path), actual_name, []))
             continue
 
+        # Special case: artifact-* sub-datasets (same logic as _bootstrap_manifest)
+        artifact_mount = slug_path_map.get("artifact-dataset")
+        if slug.startswith("artifact-") and artifact_mount is not None:
+            sub_name = slug[len("artifact-"):]  # e.g. "afhq"
+            candidate = artifact_mount / sub_name
+            if candidate.exists():
+                results.append((slug, "MATCHED (artifact-subdataset)", str(candidate), subdir, []))
+                continue
+
         matched_path, method, did_you_mean = match_mount(slug, slug_path_map, root)
         if matched_path:
             results.append((slug, f"MATCHED ({method})", str(matched_path), subdir, did_you_mean))
