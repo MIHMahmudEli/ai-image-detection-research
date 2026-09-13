@@ -78,6 +78,24 @@ Session 3 (account A, mfft-base):  Epochs 13-24 ──► download manifest → 
 On each Kaggle account, add these secrets:
 - `HF_TOKEN`: Your HuggingFace write token
 - (Optional) `KAGGLE_USERNAME`: Your Kaggle username (for run_id labeling)
+- (Optional) `MOUNT_OVERRIDES_JSON`: JSON mapping of expected slugs to actual mount folder names (see below)
+
+#### Fixing Dataset Mount Paths (MOUNT_OVERRIDES)
+
+Each Kaggle account may name uploaded datasets differently. If auto-matching fails (check the mount tree printed at bootstrap), create a **`MOUNT_OVERRIDES_JSON`** Kaggle Secret:
+
+1. Run `check_mounts.py` to see the mount tree:
+   ```python
+   !python /kaggle/working/mfft_repo/check_mounts.py
+   ```
+2. Note the actual folder names from the mount tree output
+3. Add a Kaggle Secret named `MOUNT_OVERRIDES_JSON` with the JSON mapping:
+   ```json
+   {"stable-diffusion": "actual-folder-name", "places365": "another-folder-name"}
+   ```
+4. Only include entries that failed to auto-match — matched entries can be omitted
+
+The override takes priority over all auto-matching. You do NOT need to edit `pipeline_config.py` — the override is per-session/per-account.
 
 ### 3. Create Kaggle Notebook
 
@@ -279,6 +297,7 @@ Session starts
 | `kaggle_dataset_loader.py` | Manifest-based split assignment, DataLoaders |
 | `hf_checkpoint_manager.py` | Per-run namespaced checkpoint management |
 | `kaggle_train_resumable.py` | Main training orchestrator |
+| `check_mounts.py` | Pre-flight mount check (run before training) |
 | `explore_kaggle_datasets.py` | Local: list datasets across all accounts |
 | `list_active_runs.py` | Local: cross-run status dashboard |
 | `README_KAGGLE.md` | This file |
@@ -295,8 +314,10 @@ Session starts
 - Attach all required shards in the Input panel
 
 ### "No training images resolved"
-- Check that dataset mount paths match `KAGGLE_DATASETS` config
-- Run `explore_kaggle_datasets.py` locally to verify dataset availability
+- Run the pre-flight check first: `!python /kaggle/working/mfft_repo/check_mounts.py`
+- The mount tree output shows exactly what Kaggle sees — compare with expected slugs
+- If auto-matching fails, add a `MOUNT_OVERRIDES_JSON` Kaggle Secret (see Section 2)
+- Verify all 11 datasets are attached in the Input panel
 
 ### Session timeout mid-epoch
 - The checkpoint for that epoch is NOT saved (only completed epochs)

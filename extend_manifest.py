@@ -119,20 +119,30 @@ def extend_manifest(
                         "label_int": LABEL_MAP.get(lbl, 0),
                     })
     else:
+        from split_manifest_manager import match_mount, _find_mount_path, _load_mount_overrides
+
         root = Path(input_root) if input_root else KAGGLE_INPUT_ROOT
+
+        # Discover actual mount names
+        all_mount_names = []
+        if root.exists():
+            all_mount_names = [d.name for d in root.iterdir() if d.is_dir()]
+            datasets_dir = root / "datasets"
+            if datasets_dir.exists():
+                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
+            all_mount_names = list(set(all_mount_names))
+
+        overrides = _load_mount_overrides()
+
         for slug, (label, subdir) in KAGGLE_DATASETS.items():
-            mount_dir = root / slug
-            if not mount_dir.exists():
-                # Fuzzy match
-                if root.exists():
-                    actual = [d.name for d in root.iterdir() if d.is_dir()]
-                    matches = [m for m in actual if slug in m or m in slug]
-                    if matches:
-                        mount_dir = root / min(matches, key=len)
-                    else:
-                        continue
-                else:
-                    continue
+            # Check overrides first
+            if slug in overrides:
+                mount_dir = _find_mount_path(root, overrides[slug])
+            else:
+                mount_dir, _, _ = match_mount(slug, all_mount_names, root)
+
+            if mount_dir is None:
+                continue
             image_root = mount_dir / subdir
             if not image_root.exists():
                 image_root = mount_dir

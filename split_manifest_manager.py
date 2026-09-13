@@ -18,12 +18,13 @@ Usage (in any Kaggle notebook):
 """
 
 import os
+import re
 import json
 import hashlib
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Set
 
 from pipeline_config import (
     HF_MANIFEST_REPO, MANIFEST_PATH_IN_REPO, KAGGLE_INPUT_ROOT,
@@ -62,6 +63,206 @@ def _find_hf_token() -> str:
                     if line.startswith("hf="):
                         return line.strip().split("=", 1)[1]
     raise ValueError("HF_TOKEN not found. Set as Kaggle Secret or in .env")
+
+
+# ─────────────────────────────────────────────────────────────
+# Mount overrides (FIX 3)
+# ─────────────────────────────────────────────────────────────
+
+def _load_mount_overrides() -> Dict[str, str]:
+    """
+    Load MOUNT_OVERRIDES mapping from Kaggle Secret, env var, or local file.
+    Priority: Kaggle Secret > env var > /kaggle/working/mount_overrides.json
+    Returns dict mapping expected_slug -> actual_mount_name.
+    """
+    raw = None
+
+    # 1. Kaggle Secret
+    try:
+        from kaggle_secrets import UserSecretsClient
+        raw = UserSecretsClient().get_secret("MOUNT_OVERRIDES_JSON")
+    except Exception:
+        pass
+
+    # 2. Env var
+    if raw is None:
+        raw = os.environ.get("MOUNT_OVERRIDES_JSON")
+
+    # 3. Local file
+    if raw is None:
+        for p in [Path("/kaggle/working/mount_overrides.json"),
+                  Path(__file__).parent / "mount_overrides.json"]:
+            if p.exists():
+                raw = p.read_text()
+                break
+
+    if raw is None:
+        return {}
+
+    try:
+        overrides = json.loads(raw)
+        if overrides:
+            print(f"  [MountOverrides] Loaded {len(overrides)} override(s): {overrides}")
+        return overrides
+    except json.JSONDecodeError as e:
+        print(f"  [MountOverrides] WARNING: Invalid JSON: {e}")
+        return {}
+
+
+# ─────────────────────────────────────────────────────────────
+# Layered slug matching (FIX 2)
+# ─────────────────────────────────────────────────────────────
+
+_SLUG_NORMALIZE_RE = re.compile(r"[-_\s]+")
+
+def _normalize_slug(s: str) -> str:
+    """Lowercase, strip accents, replace [-_ ] with single hyphen."""
+    return _SLUG_NORMALIZE_RE.sub("-", s.lower().strip())
+
+
+def _tokenize(s: str) -> Set[str]:
+    """Split a slug into alphanumeric tokens."""
+    return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
+def _token_overlap_score(a: str, b: str) -> float:
+    """Fraction of tokens in `a` that also appear in `b` (0.0 – 1.0)."""
+    tokens_a = _tokenize(a)
+    tokens_b = _tokenize(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    return len(tokens_a & tokens_b) / len(tokens_a)
+
+
+def _find_mount_path(input_root: Path, mount_name: str) -> Optional[Path]:
+    """Resolve a mount name to a real Path, checking top-level and datasets/."""
+    candidates = [
+        input_root / mount_name,
+        input_root / "datasets" / mount_name,
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def match_mount(
+    slug: str,
+    actual_mounts: List[str],
+    input_root: Path,
+) -> Tuple[Optional[Path], str, List[str]]:
+    """
+    Layered matching for a single expected slug against actual mount names.
+
+    Returns:
+        (matched_path, match_method, did_you_mean_candidates)
+        matched_path is None if no match found.
+    """
+    datasets_dir = input_root / "datasets"
+
+    # Collect all candidate names (top-level + nested)
+    all_candidates = list(set(actual_mounts))
+
+    # Layer 1: Exact match
+    for cand in all_candidates:
+        if slug == cand:
+            path = _find_mount_path(input_root, cand)
+            if path:
+                return path, "exact", []
+
+    # Layer 2: Case-insensitive match
+    slug_lower = slug.lower()
+    for cand in all_candidates:
+        if slug_lower == cand.lower():
+            path = _find_mount_path(input_root, cand)
+            if path:
+                return path, "case-insensitive", []
+
+    # Layer 3: Normalized match (replace [-_ ] with single separator)
+    slug_norm = _normalize_slug(slug)
+    for cand in all_candidates:
+        if slug_norm == _normalize_slug(cand):
+            path = _find_mount_path(input_root, cand)
+            if path:
+                return path, "normalized", []
+
+    # Layer 4: Contiguous substring match (original behavior)
+    for cand in all_candidates:
+        if slug in cand or cand in slug:
+            path = _find_mount_path(input_root, cand)
+            if path:
+                return path, "substring", []
+
+    # Layer 5: Token-overlap match (all tokens of slug appear in cand)
+    best_token_match = None
+    best_score = 0.0
+    did_you_mean = []
+    for cand in all_candidates:
+        score = _token_overlap_score(slug, cand)
+        if score > 0:
+            did_you_mean.append(f"{cand} (overlap={score:.0%})")
+        if score >= 0.5 and score > best_score:
+            best_score = score
+            best_token_match = cand
+
+    if best_token_match:
+        path = _find_mount_path(input_root, best_token_match)
+        if path:
+            return path, f"token-overlap({best_score:.0%})", did_you_mean
+
+    return None, "no-match", did_you_mean
+
+
+def _print_mount_tree(input_root: Path, max_depth: int = 3):
+    """FIX 1: Print complete recursive listing of input_root, unconditionally."""
+    print(f"\n{'='*60}")
+    print(f"  MOUNT TREE: {input_root}")
+    print(f"{'='*60}")
+
+    if not input_root.exists():
+        print(f"  (directory does not exist)")
+        return
+
+    def _count_filesRecursive(d: Path) -> int:
+        try:
+            return sum(1 for _ in d.rglob("*") if _.is_file())
+        except (PermissionError, OSError):
+            return -1
+
+    def _print_tree(d: Path, prefix: str, depth: int):
+        if depth > max_depth:
+            return
+        try:
+            entries = sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        except (PermissionError, OSError):
+            return
+
+        for entry in entries[:50]:  # Cap at 50 entries per level
+            if entry.is_dir():
+                try:
+                    n_children = len(list(entry.iterdir()))
+                except (PermissionError, OSError):
+                    n_children = -1
+                print(f"  {prefix}{entry.name}/ ({n_children} entries)")
+                _print_tree(entry, prefix + "  ", depth + 1)
+            else:
+                try:
+                    size = entry.stat().st_size
+                    if size > 1_000_000:
+                        size_str = f"{size/1e6:.1f}MB"
+                    elif size > 1_000:
+                        size_str = f"{size/1e3:.0f}KB"
+                    else:
+                        size_str = f"{size}B"
+                except OSError:
+                    size_str = "?"
+                print(f"  {prefix}{entry.name} ({size_str})")
+
+        if len(list(d.iterdir())) > 50:
+            print(f"  {prefix}... (truncated)")
+
+    _print_tree(input_root, "", 0)
+    print(f"{'='*60}\n")
 
 
 def build_mount_index(mount_path: Path, shard: str, label: str) -> Dict[str, Path]:
@@ -169,64 +370,56 @@ class SplitManifestManager:
         """Scan mounted datasets, build stratified split, return manifest."""
         from sklearn.model_selection import train_test_split
 
-        # 0. Discover actual mount points and match to expected slugs
+        # ── FIX 1: Print mount tree unconditionally ──
+        _print_mount_tree(self.input_root)
+
+        # ── Load overrides (FIX 3) ──
+        overrides = _load_mount_overrides()
+
+        # ── Discover actual mount names ──
         input_root = self.input_root
-        print(f"  Scanning {input_root} for mounted datasets...")
+        all_mount_names: List[str] = []
         if input_root.exists():
-            actual_mounts = [d.name for d in input_root.iterdir() if d.is_dir()]
-            print(f"  Found {len(actual_mounts)} mount(s): {actual_mounts[:15]}{'...' if len(actual_mounts) > 15 else ''}")
-            # Kaggle often nests attached datasets under /kaggle/input/datasets/
+            all_mount_names = [d.name for d in input_root.iterdir() if d.is_dir()]
             datasets_dir = input_root / "datasets"
             if datasets_dir.exists():
-                nested = [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-                print(f"  Found {len(nested)} dataset(s) under {datasets_dir}: {nested[:15]}{'...' if len(nested) > 15 else ''}")
-                actual_mounts.extend(nested)
-        else:
-            actual_mounts = []
-            print(f"  {input_root} does not exist")
+                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
+            all_mount_names = list(set(all_mount_names))
 
-        # Build a mapping: expected_slug -> actual_mount_name
-        # Kaggle mount names can be "owner-slug", "slug", "datasets/slug", or just "slug"
-        datasets_dir = input_root / "datasets"
-        slug_map = {}  # expected_slug -> actual_mount_dir
+        print(f"  Actual mounts found: {all_mount_names}")
+
+        # ── Match each expected slug (FIX 2 + FIX 3) ──
+        slug_map: Dict[str, Path] = {}
+        match_info: Dict[str, dict] = {}
+
         for slug in KAGGLE_DATASETS:
-            # Try exact match at top level
-            if slug in [m for m in actual_mounts if not m.startswith("datasets")]:
-                # Could be at top level or inside datasets/
-                top = input_root / slug
-                nested = datasets_dir / slug
-                slug_map[slug] = top if top.exists() else nested
-                continue
-            # Try exact match inside datasets/
-            if datasets_dir.exists():
-                if slug in [d.name for d in datasets_dir.iterdir() if d.is_dir()]:
-                    slug_map[slug] = datasets_dir / slug
+            # FIX 3: Override takes priority
+            if slug in overrides:
+                actual_name = overrides[slug]
+                path = _find_mount_path(input_root, actual_name)
+                if path:
+                    slug_map[slug] = path
+                    match_info[slug] = {"method": "override", "path": str(path), "did_you_mean": []}
+                    print(f"  {slug}: OVERRIDDEN -> {actual_name} ({path})")
                     continue
-            # Try partial match (e.g. "mihmahmud-stable-diffusion" matches "stable-diffusion")
-            matches = [m for m in actual_mounts if slug in m or m in slug]
-            if len(matches) == 1:
-                # Resolve: could be top-level or nested
-                candidate = input_root / matches[0]
-                if not candidate.exists() and datasets_dir.exists():
-                    candidate = datasets_dir / matches[0]
-                slug_map[slug] = candidate
-                print(f"  Mapped {slug} -> {matches[0]}")
-            elif len(matches) > 1:
-                # Pick shortest match (most specific)
-                best = min(matches, key=len)
-                candidate = input_root / best
-                if not candidate.exists() and datasets_dir.exists():
-                    candidate = datasets_dir / best
-                slug_map[slug] = candidate
-                print(f"  Mapped {slug} -> {best} (from {matches})")
-            # else: not mounted
+                else:
+                    print(f"  {slug}: OVERRIDDEN -> {actual_name} but path not found!")
 
-        # 1. Scan all mounted datasets
+            # FIX 2: Layered matching
+            matched_path, method, did_you_mean = match_mount(slug, all_mount_names, input_root)
+            match_info[slug] = {"method": method, "path": str(matched_path) if matched_path else None, "did_you_mean": did_you_mean}
+            if matched_path:
+                slug_map[slug] = matched_path
+                print(f"  {slug}: MATCHED ({method}) -> {matched_path.name}")
+            else:
+                candidates_str = f" (did you mean: {', '.join(did_you_mean[:3])})" if did_you_mean else ""
+                print(f"  {slug}: NOT MATCHED{candidates_str}")
+
+        # ── Scan all matched datasets ──
         rows = []
         shards_used = []
         for slug, (label, subdir) in KAGGLE_DATASETS.items():
             if slug not in slug_map:
-                print(f"  SKIP {slug}: not mounted")
                 continue
 
             mount_dir = slug_map[slug]
@@ -235,7 +428,6 @@ class SplitManifestManager:
             # Try configured subdir, then fallback to mount root
             image_root = mount_dir / subdir
             if not image_root.exists():
-                # Try auto-discovery: look for dirs containing images
                 image_root = mount_dir
 
             count = 0
@@ -254,24 +446,25 @@ class SplitManifestManager:
             print(f"  {slug}: {count} images ({label})")
 
         if not rows:
-            # Detailed diagnostics
-            print("\n  DIAGNOSTICS:")
-            for slug, (label, subdir) in KAGGLE_DATASETS.items():
-                if slug in slug_map:
-                    mount_dir = slug_map[slug]
-                    contents = list(mount_dir.iterdir())[:8]
-                    print(f"  {slug} -> {mount_dir}")
-                    for c in contents:
-                        kind = "dir" if c.is_dir() else "file"
-                        print(f"    [{kind}] {c.name}")
-                    target = mount_dir / subdir
-                    if target.exists():
-                        inner = list(target.iterdir())[:5]
-                        print(f"    /{subdir}/ -> {[x.name for x in inner]}")
-                    else:
-                        print(f"    /{subdir}/ DOES NOT EXIST")
-                else:
-                    print(f"  {slug}: NOT MOUNTED")
+            # Detailed failure diagnostics
+            print(f"\n{'='*60}")
+            print("  MOUNT MATCHING SUMMARY")
+            print(f"{'='*60}")
+            for slug in KAGGLE_DATASETS:
+                info = match_info.get(slug, {})
+                method = info.get("method", "N/A")
+                path = info.get("path", "N/A")
+                dym = info.get("did_you_mean", [])
+                status = f"MATCHED ({method})" if path and path != "None" else "NOT MATCHED"
+                print(f"  {slug:35s} {status}")
+                if path and path != "None":
+                    print(f"    -> {path}")
+                if dym:
+                    print(f"    Did you mean: {', '.join(dym[:3])}")
+            print(f"{'='*60}")
+            print("\n  If auto-matching fails, create a MOUNT_OVERRIDES_JSON Kaggle Secret:")
+            print('  {"expected-slug": "actual-mount-folder-name"}')
+            print(f"{'='*60}\n")
             raise RuntimeError("No images found in any mounted dataset. See diagnostics above.")
 
         print(f"  Total: {len(rows)} images across {len(shards_used)} shards")
@@ -370,8 +563,30 @@ class SplitManifestManager:
         print(f"  Uploaded: {MANIFEST_PATH_IN_REPO} -> {self.hf_repo}")
 
     # ------------------------------------------------------------------
-    # Mount index building (BUG 1 fix)
+    # Mount index building
     # ------------------------------------------------------------------
+
+    def _resolve_shard_path(self, shard: str) -> Optional[Path]:
+        """Resolve a shard name to its mount path using the same layered matching."""
+        overrides = _load_mount_overrides()
+
+        # Override first
+        if shard in overrides:
+            path = _find_mount_path(self.input_root, overrides[shard])
+            if path:
+                return path
+
+        # Discover mounts
+        all_mount_names: List[str] = []
+        if self.input_root.exists():
+            all_mount_names = [d.name for d in self.input_root.iterdir() if d.is_dir()]
+            datasets_dir = self.input_root / "datasets"
+            if datasets_dir.exists():
+                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
+            all_mount_names = list(set(all_mount_names))
+
+        matched_path, _, _ = match_mount(shard, all_mount_names, self.input_root)
+        return matched_path
 
     def build_all_mount_indices(self, manifest: dict):
         """
@@ -385,29 +600,10 @@ class SplitManifestManager:
             if shard not in KAGGLE_DATASETS:
                 continue
             label, subdir = KAGGLE_DATASETS[shard]
-            mount_dir = self.input_root / shard
-            if not mount_dir.exists():
-                # Try inside datasets/ subdirectory
-                datasets_dir = self.input_root / "datasets"
-                if datasets_dir.exists():
-                    mount_dir = datasets_dir / shard
-                if not mount_dir.exists():
-                    # Fuzzy match: find mount containing shard name
-                    if self.input_root.exists():
-                        actual = [d.name for d in self.input_root.iterdir() if d.is_dir()]
-                        if datasets_dir.exists():
-                            actual += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-                        matches = [m for m in actual if shard in m or m in shard]
-                        if matches:
-                            best = min(matches, key=len)
-                            candidate = self.input_root / best
-                            if not candidate.exists() and datasets_dir.exists():
-                                candidate = datasets_dir / best
-                            mount_dir = candidate
-                        else:
-                            continue
-                    else:
-                        continue
+
+            mount_dir = self._resolve_shard_path(shard)
+            if mount_dir is None:
+                continue
 
             image_root = mount_dir / subdir
             if not image_root.exists():

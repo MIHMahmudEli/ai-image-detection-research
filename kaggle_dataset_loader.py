@@ -124,37 +124,36 @@ class KaggleDatasetLoader:
 
     def _build_all_indices(self):
         """Build per-shard lookup indices by walking each mount once."""
+        from split_manifest_manager import match_mount, _find_mount_path, _load_mount_overrides
+
         shards_needed = set(
             info["shard"] for info in self.manifest["images"].values()
         )
+
+        # Discover actual mount names
+        all_mount_names = []
+        if self.input_root.exists():
+            all_mount_names = [d.name for d in self.input_root.iterdir() if d.is_dir()]
+            datasets_dir = self.input_root / "datasets"
+            if datasets_dir.exists():
+                all_mount_names += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
+            all_mount_names = list(set(all_mount_names))
+
+        overrides = _load_mount_overrides()
 
         for shard in shards_needed:
             if shard not in KAGGLE_DATASETS:
                 continue
             label, subdir = KAGGLE_DATASETS[shard]
-            mount_dir = self.input_root / shard
-            if not mount_dir.exists():
-                # Try inside datasets/ subdirectory
-                datasets_dir = self.input_root / "datasets"
-                if datasets_dir.exists():
-                    mount_dir = datasets_dir / shard
-                if not mount_dir.exists():
-                    # Fuzzy match: find mount containing shard name
-                    if self.input_root.exists():
-                        actual = [d.name for d in self.input_root.iterdir() if d.is_dir()]
-                        if datasets_dir.exists():
-                            actual += [d.name for d in datasets_dir.iterdir() if d.is_dir()]
-                        matches = [m for m in actual if shard in m or m in shard]
-                        if matches:
-                            best = min(matches, key=len)
-                            candidate = self.input_root / best
-                            if not candidate.exists() and datasets_dir.exists():
-                                candidate = datasets_dir / best
-                            mount_dir = candidate
-                        else:
-                            continue
-                    else:
-                        continue
+
+            # Check overrides first
+            if shard in overrides:
+                mount_dir = _find_mount_path(self.input_root, overrides[shard])
+            else:
+                mount_dir, _, _ = match_mount(shard, all_mount_names, self.input_root)
+
+            if mount_dir is None:
+                continue
 
             image_root = mount_dir / subdir
             if not image_root.exists():
