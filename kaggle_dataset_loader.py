@@ -134,7 +134,16 @@ class KaggleDatasetLoader:
             label, subdir = KAGGLE_DATASETS[shard]
             mount_dir = self.input_root / shard
             if not mount_dir.exists():
-                continue
+                # Fuzzy match: find mount containing shard name
+                if self.input_root.exists():
+                    actual = [d.name for d in self.input_root.iterdir() if d.is_dir()]
+                    matches = [m for m in actual if shard in m or m in shard]
+                    if matches:
+                        mount_dir = self.input_root / min(matches, key=len)
+                    else:
+                        continue
+                else:
+                    continue
 
             image_root = mount_dir / subdir
             if not image_root.exists():

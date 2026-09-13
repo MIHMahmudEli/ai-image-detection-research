@@ -123,7 +123,16 @@ def extend_manifest(
         for slug, (label, subdir) in KAGGLE_DATASETS.items():
             mount_dir = root / slug
             if not mount_dir.exists():
-                continue
+                # Fuzzy match
+                if root.exists():
+                    actual = [d.name for d in root.iterdir() if d.is_dir()]
+                    matches = [m for m in actual if slug in m or m in slug]
+                    if matches:
+                        mount_dir = root / min(matches, key=len)
+                    else:
+                        continue
+                else:
+                    continue
             image_root = mount_dir / subdir
             if not image_root.exists():
                 image_root = mount_dir

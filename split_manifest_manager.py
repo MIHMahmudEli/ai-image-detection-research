@@ -169,18 +169,51 @@ class SplitManifestManager:
         """Scan mounted datasets, build stratified split, return manifest."""
         from sklearn.model_selection import train_test_split
 
+        # 0. Discover actual mount points and match to expected slugs
+        input_root = self.input_root
+        print(f"  Scanning {input_root} for mounted datasets...")
+        if input_root.exists():
+            actual_mounts = [d.name for d in input_root.iterdir() if d.is_dir()]
+            print(f"  Found {len(actual_mounts)} mount(s): {actual_mounts[:15]}{'...' if len(actual_mounts) > 15 else ''}")
+        else:
+            actual_mounts = []
+            print(f"  {input_root} does not exist")
+
+        # Build a mapping: expected_slug -> actual_mount_name
+        # Kaggle mount names can be "owner-slug", "slug", or just "slug"
+        slug_map = {}  # expected_slug -> actual_mount_dir
+        for slug in KAGGLE_DATASETS:
+            # Try exact match first
+            if slug in actual_mounts:
+                slug_map[slug] = input_root / slug
+                continue
+            # Try partial match (e.g. "mihmahmud-stable-diffusion" matches "stable-diffusion")
+            matches = [m for m in actual_mounts if slug in m or m in slug]
+            if len(matches) == 1:
+                slug_map[slug] = input_root / matches[0]
+                print(f"  Mapped {slug} -> {matches[0]}")
+            elif len(matches) > 1:
+                # Pick shortest match (most specific)
+                best = min(matches, key=len)
+                slug_map[slug] = input_root / best
+                print(f"  Mapped {slug} -> {best} (from {matches})")
+            # else: not mounted
+
         # 1. Scan all mounted datasets
         rows = []
         shards_used = []
         for slug, (label, subdir) in KAGGLE_DATASETS.items():
-            mount_dir = self.input_root / slug
-            if not mount_dir.exists():
+            if slug not in slug_map:
                 print(f"  SKIP {slug}: not mounted")
                 continue
 
+            mount_dir = slug_map[slug]
             shards_used.append(slug)
+
+            # Try configured subdir, then fallback to mount root
             image_root = mount_dir / subdir
             if not image_root.exists():
+                # Try auto-discovery: look for dirs containing images
                 image_root = mount_dir
 
             count = 0
@@ -199,7 +232,25 @@ class SplitManifestManager:
             print(f"  {slug}: {count} images ({label})")
 
         if not rows:
-            raise RuntimeError("No images found in any mounted dataset")
+            # Detailed diagnostics
+            print("\n  DIAGNOSTICS:")
+            for slug, (label, subdir) in KAGGLE_DATASETS.items():
+                if slug in slug_map:
+                    mount_dir = slug_map[slug]
+                    contents = list(mount_dir.iterdir())[:8]
+                    print(f"  {slug} -> {mount_dir}")
+                    for c in contents:
+                        kind = "dir" if c.is_dir() else "file"
+                        print(f"    [{kind}] {c.name}")
+                    target = mount_dir / subdir
+                    if target.exists():
+                        inner = list(target.iterdir())[:5]
+                        print(f"    /{subdir}/ -> {[x.name for x in inner]}")
+                    else:
+                        print(f"    /{subdir}/ DOES NOT EXIST")
+                else:
+                    print(f"  {slug}: NOT MOUNTED")
+            raise RuntimeError("No images found in any mounted dataset. See diagnostics above.")
 
         print(f"  Total: {len(rows)} images across {len(shards_used)} shards")
 
@@ -314,7 +365,16 @@ class SplitManifestManager:
             label, subdir = KAGGLE_DATASETS[shard]
             mount_dir = self.input_root / shard
             if not mount_dir.exists():
-                continue
+                # Fuzzy match: find mount containing shard name
+                if self.input_root.exists():
+                    actual = [d.name for d in self.input_root.iterdir() if d.is_dir()]
+                    matches = [m for m in actual if shard in m or m in shard]
+                    if matches:
+                        mount_dir = self.input_root / min(matches, key=len)
+                    else:
+                        continue
+                else:
+                    continue
 
             image_root = mount_dir / subdir
             if not image_root.exists():
