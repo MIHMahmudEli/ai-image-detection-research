@@ -491,16 +491,11 @@ class SplitManifestManager:
             if not image_root.exists():
                 image_root = mount_dir
 
-            # Count files first for progress bar
+            # Scan for images (single pass, no pre-count)
             print(f"  Scanning {slug}...", end=" ", flush=True)
-            try:
-                n_files = sum(1 for _ in image_root.rglob("*")
-                              if _.suffix.lower() in IMG_EXTENSIONS and _.is_file())
-            except (PermissionError, OSError):
-                n_files = 0
 
             count = 0
-            pbar = tqdm(image_root.rglob("*"), total=n_files, desc=f"  {slug}",
+            pbar = tqdm(image_root.rglob("*"), desc=f"  {slug}",
                         leave=False, ncols=80, file=sys.stdout)
             for img_path in pbar:
                 if img_path.suffix.lower() in IMG_EXTENSIONS and img_path.is_file():
