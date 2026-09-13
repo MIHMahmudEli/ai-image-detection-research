@@ -1,22 +1,24 @@
 """
 MFFT Resumable Kaggle Training Script
-========================================
-Multi-session training with HuggingFace Hub persistence.
+=======================================
+Multi-session, multi-account training with HuggingFace Hub persistence.
 
-FIRST RUN (with all 11 datasets attached):
+All parallel runs evaluate on the EXACT same data because:
+  1. A frozen split manifest is built on first run and shared via HF
+  2. All subsequent runs download and use that same manifest
+  3. Per-run namespacing prevents checkpoint collisions on HF
+
+FIRST RUN (MFFT-base, all 11 datasets attached):
   1. Clones repo, installs deps
-  2. Builds master manifest by scanning mounted datasets
-  3. Uploads manifest to HuggingFace
-  4. Trains model, uploads checkpoints to HF
+  2. SplitManifestManager bootstraps manifest from mounted datasets
+  3. Uploads manifest to HF at manifest/split_manifest.json (frozen)
+  4. Trains model, uploads checkpoints to runs/<run_id>/...
 
 LATER RUNS (any account, any datasets attached):
   1. Clones repo, installs deps
-  2. Downloads manifest from HF (same split as first run)
-  3. Resolves paths from currently mounted datasets
+  2. SplitManifestManager downloads existing manifest from HF
+  3. KaggleDatasetLoader resolves paths from mounted datasets
   4. Resumes training from last checkpoint on HF
-
-All models evaluate on the EXACT same data because the manifest
-defines deterministic splits (seed=42) stored on HuggingFace.
 
 SETUP:
 1. Create Kaggle Notebook with GPU
@@ -54,6 +56,7 @@ import os
 import sys
 import time
 import json
+import hashlib
 import subprocess
 from pathlib import Path
 from datetime import datetime
@@ -72,7 +75,7 @@ else:
 sys.path.insert(0, str(REPO_DIR))
 
 # ── Step 2: Install deps ──
-subprocess.run(["pip", "install", "-q", "huggingface_hub", "open_clip_torch", "scipy"], check=False)
+subprocess.run(["pip", "install", "-q", "huggingface_hub", "open_clip_torch", "scipy", "python-dotenv"], check=False)
 
 # ── Step 3: Imports ──
 import torch
@@ -85,8 +88,12 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LinearLR, Sequ
 from sklearn.metrics import f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix
 from collections import Counter
 
-from hf_checkpoint_manager import HFCheckpointManager, TrainingState
+from hf_checkpoint_manager import HFCheckpointManager, TrainingState, MetricRecord, compute_manifest_sha256
+from split_manifest_manager import SplitManifestManager
+from kaggle_dataset_loader import KaggleDatasetLoader
 from model.src.model import build_mfft, count_parameters
+
+CLASS_NAMES = ["real", "ai_generated", "deepfake"]
 
 # ── Seed ──
 def set_seed(seed):
@@ -135,44 +142,40 @@ def get_hf_token():
 hf_token = get_hf_token()
 print(f"HF Token: {hf_token[:8]}...")
 
+# ── Run ID ──
+date_str = datetime.now().strftime("%Y%m%d")
+account_str = "kaggle"
+try:
+    from kaggle_secrets import UserSecretsClient
+    account_str = UserSecretsClient().get_secret("KAGGLE_USERNAME")[:8]
+except Exception:
+    pass
+run_id = f"{MODEL_VARIANT}_{account_str}_{date_str}"
+print(f"Run ID: {run_id}")
+
 # ============================================================
-# PHASE 1: BUILD OR DOWNLOAD MANIFEST
+# PHASE 1: SPLIT MANIFEST (download-or-bootstrap)
 # ============================================================
 print("\n" + "=" * 60)
-print("PHASE 1: Dataset Manifest")
+print("PHASE 1: Split Manifest")
 print("=" * 60)
 
-# Try to download existing manifest from HF
-manifest_available = False
-try:
-    from huggingface_hub import hf_hub_download
-    manifest_path = hf_hub_download(
-        repo_id=HF_MANIFEST_REPO,
-        filename="master_manifest.json",
-        repo_type="model",
-        token=hf_token,
-    )
-    with open(manifest_path) as f:
-        existing_manifest = json.load(f)
-    print(f"Existing manifest found on HF: {existing_manifest.get('manifest_hash', 'N/A')}")
-    print(f"  Samples: {len(existing_manifest.get('samples', []))}")
-    manifest_available = True
-except Exception:
-    print("No manifest found on HuggingFace Hub")
+manifest_mgr = SplitManifestManager(
+    hf_token=hf_token,
+    hf_repo=HF_MANIFEST_REPO,
+    run_id=run_id,
+)
 
-if not manifest_available:
-    # FIRST RUN: Build manifest by scanning mounted datasets
-    print("\n*** FIRST RUN: Building master manifest from mounted datasets ***")
-    print("Attaching all 11 datasets...")
+manifest, manifest_sha256 = manifest_mgr.get_or_bootstrap()
+manifest_version = manifest.get("version", 1)
 
-    # Import and run the manifest builder
-    sys.path.insert(0, str(REPO_DIR))
-    from build_master_manifest import build_manifest
-
-    manifest = build_manifest(input_root="/kaggle/input", upload=True)
-    print(f"\nManifest uploaded to HF: {manifest.get('manifest_hash', 'N/A')}")
-else:
-    print("Using existing manifest from HF (all models will use this same split)")
+print(f"\nManifest details:")
+print(f"  Version: {manifest_version}")
+print(f"  SHA-256: {manifest_sha256[:16]}...")
+print(f"  Total images: {manifest['total_images']}")
+print(f"  Shards used: {manifest['shards_used']}")
+print(f"  Split sizes: {manifest['split_sizes']}")
+print(f"  Class distribution: {manifest['class_distribution']}")
 
 # ============================================================
 # PHASE 2: LOAD DATASET
@@ -181,35 +184,30 @@ print("\n" + "=" * 60)
 print("PHASE 2: Loading Dataset")
 print("=" * 60)
 
-from kaggle_dataset_loader import KaggleDatasetLoader
-
 loader = KaggleDatasetLoader(
-    hf_token=hf_token,
-    hf_manifest_repo=HF_MANIFEST_REPO,
+    manifest=manifest,
+    manifest_sha256=manifest_sha256,
+    input_root="/kaggle/input",
     image_size=IMAGE_SIZE,
 )
 
-train_df, val_df, test_df = loader.load()
-
-if len(train_df) == 0:
-    raise RuntimeError(
-        "No training images found. Ensure all 11 Kaggle datasets are attached.\n"
-        "Required: stable-diffusion, places365, open-images-v7-dataset,\n"
-        "ntire2026, midjourney, mfft-real, genimage-ai, faceforensics,\n"
-        "dfdc-faces-of-the-train-sample, dall-e3, celebdf-v2image-dataset"
-    )
-
-split_info = loader.get_split_info()
-print(f"\nSplit verification (all models match this):")
-print(f"  Manifest hash: {split_info['manifest_hash']}")
-print(f"  Seed: {split_info['seed']}")
-print(f"  Train: {split_info['train_count']} (manifest) -> {len(train_df)} (resolved)")
-print(f"  Val: {split_info['val_count']} (manifest) -> {len(val_df)} (resolved)")
-
-# Create dataloaders
-train_loader, val_loader = loader.to_dataloaders(
-    train_df, val_df, batch_size=BATCH_SIZE, image_size=IMAGE_SIZE,
+train_loader, val_loader, test_loader = loader.create_dataloaders(
+    batch_size=BATCH_SIZE,
+    num_workers=4,
+    pin_memory=True,
 )
+
+split_summary = loader.get_split_summary()
+print(f"\nSplit verification (all models match this):")
+print(f"  Manifest: v{split_summary['manifest_version']} ({split_summary['manifest_sha256']})")
+print(f"  Train: {split_summary['resolved']['train']}")
+print(f"  Val: {split_summary['resolved']['val']}")
+print(f"  Test: {split_summary['resolved']['test']}")
+
+if len(loader.train_data) == 0:
+    raise RuntimeError(
+        "No training images resolved. Ensure all 11 Kaggle datasets are attached."
+    )
 
 # ============================================================
 # PHASE 3: MODEL
@@ -234,44 +232,58 @@ cosine = CosineAnnealingWarmRestarts(optimizer, T_0=MAX_EPOCHS * len(train_loade
 scheduler = SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps])
 scaler = GradScaler(enabled=torch.cuda.is_available())
 
-# ── Checkpoint Manager ──
+# ── Checkpoint Manager (run_id-namespaced) ──
 hf_mgr = HFCheckpointManager(
-    repo_id=HF_REPO_ID,
     hf_token=hf_token,
-    local_dir="/kaggle/working/mfft_training",
-    git_sha=git_sha,
+    hf_repo=HF_REPO_ID,
+    run_id=run_id,
+    manifest_sha256=manifest_sha256,
 )
 
 # ── Resume ──
-state = TrainingState(patience=PATIENCE, git_sha=git_sha)
+state = TrainingState(
+    run_id=run_id,
+    model_variant=MODEL_VARIANT,
+    manifest_sha256=manifest_sha256,
+    manifest_version=manifest_version,
+    total_epochs=MAX_EPOCHS,
+    patience_limit=PATIENCE,
+)
 start_epoch = 1
 
-resumed = hf_mgr.resume()
-if resumed is not None:
-    checkpoint, restored_state = resumed
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    if checkpoint.get("scheduler_state_dict"):
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-    if checkpoint.get("scaler_state_dict") and torch.cuda.is_available():
-        scaler.load_state_dict(checkpoint["scaler_state_dict"])
-    state = restored_state
-    start_epoch = state.epoch + 1
-    print(f"\nResumed from epoch {state.epoch} -> epoch {start_epoch}")
+existing_state = hf_mgr.load_state()
+if existing_state is not None:
+    # Resume from checkpoint
+    ckpt_path = hf_mgr.download_checkpoint("last")
+    if ckpt_path:
+        checkpoint = torch.load(ckpt_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if checkpoint.get("scheduler_state_dict"):
+            scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        if checkpoint.get("scaler_state_dict") and torch.cuda.is_available():
+            scaler.load_state_dict(checkpoint["scaler_state_dict"])
+
+    state = existing_state
+    start_epoch = state.current_epoch + 1
+    print(f"\nResumed from epoch {state.current_epoch} -> epoch {start_epoch}")
+    print(f"  Best val macro-F1: {state.best_val_macro_f1:.4f}")
+    print(f"  Manifest hash: {state.manifest_sha256[:16]}...")
 else:
     print("\nStarting fresh training run.")
 
-hf_mgr.log_session_start()
+hf_mgr.log_session(f"START run_id={run_id} manifest_sha256={manifest_sha256[:16]} epoch={start_epoch}")
 
 # ============================================================
 # PHASE 5: TRAINING LOOP
 # ============================================================
 print(f"\n{'='*60}")
 print(f"Training MFFT-{MODEL_VARIANT}")
+print(f"Run ID: {run_id}")
 print(f"Epochs: {start_epoch} -> {MAX_EPOCHS}")
 print(f"Batch: {BATCH_SIZE}, Image: {IMAGE_SIZE}x{IMAGE_SIZE}")
 print(f"Patience: {PATIENCE} (macro-F1)")
-print(f"Manifest: {split_info['manifest_hash']}")
+print(f"Manifest: v{manifest_version} ({manifest_sha256[:16]}...)")
 print(f"{'='*60}\n")
 
 start_time = time.time()
@@ -367,90 +379,137 @@ for epoch in range(start_epoch, MAX_EPOCHS + 1):
         f"Spec: {specificity:.2f}% | {epoch_time:.0f}s"
     )
 
-    metrics = {
+    # ── Update state ──
+    state.current_epoch = epoch
+    state.train_accuracy = train_acc
+    state.val_accuracy = val_acc
+    state.val_macro_f1 = macro_f1 / 100
+    state.val_auc = auc
+    state.val_loss = avg_val_loss
+    state.total_train_time = elapsed
+
+    # ── Early stopping logic ──
+    improved = False
+    if macro_f1 / 100 > state.best_val_macro_f1:
+        state.best_val_macro_f1 = macro_f1 / 100
+        state.best_val_auc = auc
+        state.best_val_accuracy = val_acc
+        state.best_val_loss = avg_val_loss
+        state.best_model_epoch = epoch
+        state.patience_counter = 0
+        improved = True
+    else:
+        state.patience_counter += 1
+
+    state.status = "training"
+
+    # ── Save state + best checkpoint ──
+    state_dict = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "scaler_state_dict": scaler.state_dict() if torch.cuda.is_available() else None,
         "epoch": epoch,
-        "train_loss": round(avg_train_loss, 6),
-        "train_acc": round(train_acc, 4),
-        "val_loss": round(avg_val_loss, 6),
-        "val_accuracy": round(val_acc, 4),
-        "val_precision": round(precision, 4),
-        "val_recall": round(recall, 4),
-        "val_f1": round(f1_binary, 4),
-        "val_macro_f1": round(macro_f1, 4),
-        "val_auc": round(auc, 6),
-        "learning_rate": round(scheduler.get_last_lr()[0], 8),
-        "timestamp": datetime.now().isoformat(),
-        "manifest_hash": split_info["manifest_hash"],
-        "split_train_count": len(train_df),
-        "split_val_count": len(val_df),
     }
-    history.append(metrics)
 
-    # ── Save + Upload ──
-    state = hf_mgr.save_and_upload(
-        epoch=epoch, model=model, optimizer=optimizer,
-        scheduler=scheduler, metrics=metrics, state=state, scaler=scaler,
+    # Always save last
+    tmp_last = Path("/kaggle/working/last.pt")
+    torch.save(state_dict, tmp_last)
+    hf_mgr.upload_checkpoint(str(tmp_last), "last")
+
+    # Save best if improved
+    if improved:
+        tmp_best = Path("/kaggle/working/best.pt")
+        torch.save(state_dict, tmp_best)
+        hf_mgr.upload_checkpoint(str(tmp_best), "best")
+
+    # Snapshot epochs
+    if epoch in SNAPSHOT_EPOCHS:
+        tmp_snap = Path(f"/kaggle/working/epoch_{epoch}.pt")
+        torch.save(state_dict, tmp_snap)
+        hf_mgr.upload_checkpoint(str(tmp_snap), f"epoch_{epoch}")
+
+    # Save state
+    hf_mgr.save_state(state)
+
+    # Log metrics
+    metric_record = MetricRecord(
+        run_id=run_id,
+        epoch=epoch,
+        train_loss=round(avg_train_loss, 6),
+        train_accuracy=round(train_acc, 4),
+        val_loss=round(avg_val_loss, 6),
+        val_accuracy=round(val_acc, 4),
+        val_macro_f1=round(macro_f1, 4),
+        val_auc=round(auc, 6),
+        val_precision=round(precision, 4),
+        val_recall=round(recall, 4),
+        val_specificity=round(specificity, 4),
+        learning_rate=round(scheduler.get_last_lr()[0], 8),
+        elapsed_time=round(epoch_time, 2),
     )
+    hf_mgr.log_metrics(metric_record)
 
-    # ── Early Stopping ──
-    if state.epochs_since_improvement >= state.patience:
+    # ── Early stopping ──
+    if state.patience_counter >= state.patience_limit:
         state.status = "early_stopped"
-        state.reason = f"No improvement for {state.patience} epochs. Best: epoch {state.best_epoch} (macro_f1={state.best_val_macro_f1:.4f})"
-        hf_mgr.save_training_state_local(state)
-        hf_mgr.upload_file(hf_mgr.logs_dir / "training_state.json", "logs/training_state.json")
-        print(f"\n*** EARLY STOP at epoch {epoch}: {state.reason} ***")
+        hf_mgr.save_state(state)
+        hf_mgr.log_session(f"EARLY_STOP epoch={epoch} best_epoch={state.best_model_epoch} best_f1={state.best_val_macro_f1:.4f}")
+        print(f"\n*** EARLY STOP at epoch {epoch}: no improvement for {state.patience_limit} epochs ***")
+        print(f"    Best: epoch {state.best_model_epoch} (macro_f1={state.best_val_macro_f1:.4f})")
         break
 
     if epoch == MAX_EPOCHS:
         state.status = "completed"
-        state.reason = f"Completed {MAX_EPOCHS} epochs."
-        hf_mgr.save_training_state_local(state)
-        hf_mgr.upload_file(hf_mgr.logs_dir / "training_state.json", "logs/training_state.json")
+        hf_mgr.save_state(state)
+        hf_mgr.log_session(f"COMPLETED epoch={epoch} best_f1={state.best_val_macro_f1:.4f}")
 
 # ============================================================
 # FINAL
 # ============================================================
 print(f"\n{'='*60}")
-print(f"TRAINING COMPLETE")
+print(f"TRAINING COMPLETE — {run_id}")
 print(f"Status: {state.status}")
-print(f"Best epoch: {state.best_epoch} | macro_f1={state.best_val_macro_f1:.4f} | auc={state.best_val_auc:.4f}")
+print(f"Best epoch: {state.best_model_epoch} | macro_f1={state.best_val_macro_f1:.4f} | auc={state.best_val_auc:.4f}")
 print(f"Time: {elapsed:.0f}s ({elapsed/3600:.1f}h)")
-print(f"Manifest: {split_info['manifest_hash']}")
+print(f"Manifest: v{manifest_version} ({manifest_sha256[:16]}...)")
 print(f"{'='*60}")
 
-final_metrics = {
-    "status": state.status,
-    "best_epoch": state.best_epoch,
+# ── ONNX export ──
+try:
+    model.eval()
+    dummy = torch.randn(1, 3, IMAGE_SIZE, IMAGE_SIZE).to(device)
+    onnx_path = Path("/kaggle/working/model.onnx")
+    torch.onnx.export(model, dummy, str(onnx_path), opset_version=14)
+    hf_mgr.upload_onnx(str(onnx_path))
+    print(f"ONNX exported: {onnx_path}")
+except Exception as e:
+    print(f"ONNX export failed: {e}")
+
+# ── Final model card ──
+hf_mgr.update_model_card(state, metrics={
+    "best_epoch": state.best_model_epoch,
     "best_val_macro_f1": state.best_val_macro_f1,
     "best_val_auc": state.best_val_auc,
-    "best_val_loss": state.best_val_loss,
-    "best_val_accuracy": state.best_val_accuracy,
-    "total_epochs": epoch,
-    "total_time_seconds": round(elapsed, 2),
-    "params": n_params,
+    "total_epochs": state.current_epoch,
+    "total_time_hours": round(elapsed / 3600, 2),
+})
+
+# ── Results JSON ──
+results = {
+    "run_id": run_id,
     "model_variant": MODEL_VARIANT,
-    "manifest_hash": split_info["manifest_hash"],
+    "manifest_sha256": manifest_sha256,
+    "manifest_version": manifest_version,
+    "status": state.status,
+    "best_epoch": state.best_model_epoch,
+    "best_val_macro_f1": state.best_val_macro_f1,
+    "best_val_auc": state.best_val_auc,
+    "total_time_seconds": round(elapsed, 2),
 }
-
-best_m = min(history, key=lambda m: abs(m["val_macro_f1"] - state.best_val_macro_f1))
-manuscript_metrics = {
-    "mfft_variant": MODEL_VARIANT,
-    "accuracy": best_m["val_accuracy"],
-    "precision_macro": best_m["val_precision"],
-    "recall_macro": best_m["val_recall"],
-    "f1_binary": best_m["val_f1"],
-    "f1_macro": best_m["val_macro_f1"],
-    "auc_roc": best_m["val_auc"],
-    "confusion_matrix": cm.tolist(),
-    "best_epoch": state.best_epoch,
-    "manifest_hash": split_info["manifest_hash"],
-}
-
-hf_mgr.upload_final_artifacts(model=model, state=state, final_metrics=final_metrics, manuscript_metrics=manuscript_metrics)
-
-results_path = Path("/kaggle/working/mfft_results.json")
+results_path = Path("/kaggle/working/results.json")
 with open(results_path, "w") as f:
-    json.dump({"final_metrics": final_metrics, "manuscript_metrics": manuscript_metrics, "history": history}, f, indent=2)
+    json.dump(results, f, indent=2, default=str)
 
 print(f"\nResults: {results_path}")
-print(f"Checkpoints: https://huggingface.co/{HF_REPO_ID}")
+print(f"Checkpoints: https://huggingface.co/{HF_REPO_ID}/tree/main/runs/{run_id}")
