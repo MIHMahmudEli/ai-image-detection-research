@@ -142,6 +142,18 @@ class KaggleDatasetLoader:
             # Check overrides first
             if shard in overrides:
                 mount_dir = _find_mount_path(self.input_root, overrides[shard])
+            # Special case: artifact-* sub-datasets
+            elif shard.startswith("artifact-"):
+                artifact_mount = slug_path_map.get("artifact-dataset")
+                if artifact_mount:
+                    sub_name = shard[len("artifact-"):]
+                    candidate = artifact_mount / sub_name
+                    if candidate.exists():
+                        mount_dir = candidate
+                    else:
+                        mount_dir = None
+                else:
+                    mount_dir = None
             else:
                 mount_dir, _, _ = match_mount(shard, slug_path_map, self.input_root)
 

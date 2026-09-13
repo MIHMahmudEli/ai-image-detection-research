@@ -436,6 +436,9 @@ class SplitManifestManager:
         slug_map: Dict[str, Path] = {}
         match_info: Dict[str, dict] = {}
 
+        # Special handling for artifact-* sub-datasets (all under same mount)
+        artifact_mount = slug_path_map.get("artifact-dataset")
+
         for slug in KAGGLE_DATASETS:
             # FIX 3: Override takes priority
             if slug in overrides:
@@ -444,24 +447,38 @@ class SplitManifestManager:
                 if path:
                     slug_map[slug] = path
                     match_info[slug] = {"method": "override", "path": str(path), "did_you_mean": []}
-                    print(f"  {slug}: OVERRIDDEN -> {actual_name} ({path})")
+                    print(f"  {slug}: OVERRIDDEN -> {actual_name} ({path})", flush=True)
                     continue
                 else:
-                    print(f"  {slug}: OVERRIDDEN -> {actual_name} but path not found!")
+                    print(f"  {slug}: OVERRIDDEN -> {actual_name} but path not found!", flush=True)
+
+            # Special case: artifact-* sub-datasets all share one mount
+            if slug.startswith("artifact-") and artifact_mount is not None:
+                sub_name = slug[len("artifact-"):]  # e.g. "afhq"
+                candidate = artifact_mount / sub_name
+                if candidate.exists():
+                    slug_map[slug] = candidate  # Store sub-dataset path, not mount root
+                    match_info[slug] = {"method": "artifact-subdataset", "path": str(candidate), "did_you_mean": []}
+                    print(f"  {slug}: MATCHED (artifact-subdataset) -> {candidate}", flush=True)
+                    continue
 
             # FIX 2: Layered matching against slug-level names
             matched_path, method, did_you_mean = match_mount(slug, slug_path_map, input_root)
             match_info[slug] = {"method": method, "path": str(matched_path) if matched_path else None, "did_you_mean": did_you_mean}
             if matched_path:
                 slug_map[slug] = matched_path
-                print(f"  {slug}: MATCHED ({method}) -> {matched_path}")
+                print(f"  {slug}: MATCHED ({method}) -> {matched_path}", flush=True)
             else:
                 candidates_str = f" (did you mean: {', '.join(did_you_mean[:3])})" if did_you_mean else ""
-                print(f"  {slug}: NOT MATCHED{candidates_str}")
+                print(f"  {slug}: NOT MATCHED{candidates_str}", flush=True)
 
         # ── Scan all matched datasets ──
+        import sys
+        from tqdm import tqdm
+
         rows = []
         shards_used = []
+        total_before = 0
         for slug, (label, subdir) in KAGGLE_DATASETS.items():
             if slug not in slug_map:
                 continue
@@ -474,8 +491,18 @@ class SplitManifestManager:
             if not image_root.exists():
                 image_root = mount_dir
 
+            # Count files first for progress bar
+            print(f"  Scanning {slug}...", end=" ", flush=True)
+            try:
+                n_files = sum(1 for _ in image_root.rglob("*")
+                              if _.suffix.lower() in IMG_EXTENSIONS and _.is_file())
+            except (PermissionError, OSError):
+                n_files = 0
+
             count = 0
-            for img_path in image_root.rglob("*"):
+            pbar = tqdm(image_root.rglob("*"), total=n_files, desc=f"  {slug}",
+                        leave=False, ncols=80, file=sys.stdout)
+            for img_path in pbar:
                 if img_path.suffix.lower() in IMG_EXTENSIONS and img_path.is_file():
                     if img_path.stat().st_size == 0:
                         continue
@@ -487,10 +514,13 @@ class SplitManifestManager:
                         "label_int": LABEL_MAP[label],
                     })
                     count += 1
-            print(f"  {slug}: {count} images ({label})")
+                    pbar.set_postfix(imgs=count)
+            pbar.close()
+            print(f"{count} images ({label})", flush=True)
+
+        print(f"  Total: {len(rows)} images across {len(shards_used)} shards", flush=True)
 
         if not rows:
-            # Detailed failure diagnostics
             print(f"\n{'='*60}")
             print("  MOUNT MATCHING SUMMARY")
             print(f"{'='*60}")
@@ -620,7 +650,17 @@ class SplitManifestManager:
             if path:
                 return path
 
-        # Discover slug-level mounts (BUG A fix)
+        # Special case: artifact-* sub-datasets
+        if shard.startswith("artifact-"):
+            slug_path_map = _discover_mounted_slugs(self.input_root)
+            artifact_mount = slug_path_map.get("artifact-dataset")
+            if artifact_mount:
+                sub_name = shard[len("artifact-"):]
+                candidate = artifact_mount / sub_name
+                if candidate.exists():
+                    return candidate
+
+        # Discover slug-level mounts
         slug_path_map = _discover_mounted_slugs(self.input_root)
 
         matched_path, _, _ = match_mount(shard, slug_path_map, self.input_root)
