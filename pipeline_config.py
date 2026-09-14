@@ -24,6 +24,15 @@ SEED = 42
 VAL_SPLIT = 0.15
 TEST_SPLIT = 0.15
 
+# ── Rebuild manifest targets (FIX 1–4) ──
+TARGET_TOTAL_IMAGES = 650_000
+TARGET_CLASS_RATIOS = {"real": 0.474, "ai_generated": 0.438, "deepfake": 0.088}
+TEST_MIN_PER_SHARD = 300
+MAX_FRAMES_PER_VIDEO = 20
+
+# ── Deepfake shards that require video/identity-grouped splitting ──
+DEEPFAKE_VIDEO_SHARDS = {"faceforensics", "dfdc-faces-of-the-train-sample", "celebdf-v2image-dataset"}
+
 # ── Labels ──
 LABEL_MAP = {"real": 0, "ai_generated": 1, "deepfake": 2}
 CLASS_NAMES = ["real", "ai_generated", "deepfake"]
