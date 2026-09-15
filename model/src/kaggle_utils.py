@@ -343,6 +343,149 @@ class KaggleEnv:
             commit_message=f"Deploy {model_name} checkpoint",
         )
 
+    # ═══════════════════════════════════════════════════════════
+    # Deployment export
+    # ═══════════════════════════════════════════════════════════
+
+    def export_for_deployment(
+        self,
+        model,
+        variant: str,
+        local_dir: Path,
+        best_acc: float = 0.0,
+        num_classes: int = 2,
+        extra_config: Optional[dict] = None,
+    ) -> Path:
+        """
+        Save a deployment-ready package: state_dict + config.json + README.md.
+        Returns the directory path.
+        """
+        import torch
+
+        local_dir = Path(local_dir)
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Save state_dict (clean, no optimizer/scheduler)
+        model_path = local_dir / "model.pt"
+        torch.save(model.state_dict(), model_path)
+
+        # 2. Build config
+        config = {
+            "variant": variant,
+            "num_classes": num_classes,
+            "image_size": getattr(model, "img_size", 384),
+            "total_params": sum(p.numel() for p in model.parameters()),
+            "trainable_params": sum(p.numel() for p in model.parameters() if p.requires_grad),
+            "best_val_acc": round(best_acc, 2),
+            "framework": "pytorch",
+            "architecture": "MFFT (Multi-Frequency Fusion Transformer)",
+            "exported_at": datetime.now().isoformat(),
+        }
+        if extra_config:
+            config.update(extra_config)
+
+        config_path = local_dir / "config.json"
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        # 3. Generate README
+        readme = f"""# MFFT-{variant.title()} — AI Image Detection Model
+
+## Architecture
+Multi-Frequency Fusion Transformer (MFFT-{variant})
+
+- **Parameters**: {config['total_params']:,}
+- **Image Size**: {config['image_size']}x{config['image_size']}
+- **Classes**: {num_classes} (real, ai_generated)
+- **Best Val Acc**: {best_acc:.2f}%
+
+## Usage
+
+```python
+import torch
+from src.model import build_mfft
+
+model = build_mfft("{variant}")
+model.load_state_dict(torch.load("model.pt", weights_only=True))
+model.eval()
+
+# Inference
+from src.dataset import ImageTransform
+transform = ImageTransform(size={config['image_size']}, augment=False)
+img = transform(pil_image).unsqueeze(0)
+logits = model(img)
+probs = torch.softmax(logits, dim=-1)
+```
+
+## Files
+- `model.pt` — PyTorch state_dict
+- `config.json` — Model configuration
+- `README.md` — This file
+
+## Exported
+- Date: {config['exported_at']}
+- Framework: PyTorch {torch.__version__}
+"""
+        readme_path = local_dir / "README.md"
+        with open(readme_path, "w") as f:
+            f.write(readme)
+
+        size_mb = model_path.stat().st_size / 1e6
+        print(f"  Deployment package: {local_dir} ({size_mb:.1f} MB)")
+        return local_dir
+
+    def upload_deployment_model(self, local_dir: Path, variant: str) -> bool:
+        """Upload deployment package to the mfft-model HF repo."""
+        return self.upload_to_hf(
+            local_dir,
+            self.hf_model_repo,
+            f"models/{variant}",
+            commit_message=f"Upload MFFT-{variant} deployment package",
+        )
+
+    def upload_figures_and_metrics(
+        self,
+        results_dir: Path,
+        tag: str = "",
+    ) -> bool:
+        """
+        Upload fig/ and table/ (or entire results_dir) to mfft-results repo.
+        Preserves directory structure under results/<tag>/.
+        """
+        results_dir = Path(results_dir)
+        if not results_dir.exists():
+            print(f"  WARNING: {results_dir} does not exist — skipping upload")
+            return False
+
+        base_path = f"results/{tag}" if tag else "results"
+        ok = True
+
+        # Upload fig/ directory if it exists
+        fig_dir = results_dir / "fig"
+        if fig_dir.exists() and any(fig_dir.iterdir()):
+            ok &= self.upload_to_hf(
+                fig_dir, self.hf_results_repo, f"{base_path}/fig",
+                commit_message=f"Upload {tag} figures",
+            )
+
+        # Upload table/ directory if it exists
+        table_dir = results_dir / "table"
+        if table_dir.exists() and any(table_dir.iterdir()):
+            ok &= self.upload_to_hf(
+                table_dir, self.hf_results_repo, f"{base_path}/table",
+                commit_message=f"Upload {tag} tables",
+            )
+
+        # Upload standalone files (CSVs, PNGs in results_dir root)
+        for f in results_dir.iterdir():
+            if f.is_file() and f.suffix in (".csv", ".png", ".json"):
+                ok &= self.upload_to_hf(
+                    f, self.hf_results_repo, f"{base_path}/{f.name}",
+                    commit_message=f"Upload {tag}/{f.name}",
+                )
+
+        return ok
+
 
 def setup_notebook_env(
     variant: str = "base",
