@@ -96,6 +96,9 @@ class KaggleEnv:
         self.hf_model_repo = os.environ.get(
             "HF_MODEL_REPO", "MohsinElis/mfft-model"
         )
+        self.hf_manifest_repo = os.environ.get(
+            "HF_MANIFEST_REPO", "MohsinElis/mfft-master-manifest"
+        )
 
         # ── Summary ──
         print(f"KaggleEnv initialized:")
@@ -269,6 +272,120 @@ class KaggleEnv:
         # Fallback to best.pt
         best = ckpt_dir / "best.pt"
         return best if best.exists() else None
+
+    # ═══════════════════════════════════════════════════════════
+    # HuggingFace download (manifest + checkpoints)
+    # ═══════════════════════════════════════════════════════════
+
+    def _get_hf_api(self):
+        """Get or create HfApi instance."""
+        try:
+            from huggingface_hub import HfApi
+        except ImportError:
+            os.system("pip install huggingface_hub -q")
+            from huggingface_hub import HfApi
+        return HfApi(token=self.hf_token) if self.hf_token else None
+
+    def download_manifest(self, local_path: Path) -> bool:
+        """
+        Download train_manifest.csv from HF if not present locally.
+        Returns True if manifest is available (local or downloaded).
+        """
+        local_path = Path(local_path)
+        if local_path.exists() and local_path.stat().st_size > 1000:
+            print(f"  Manifest exists locally: {local_path.name}")
+            return True
+
+        if not self.hf_token:
+            print("  WARNING: No HF token — cannot download manifest")
+            return False
+
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            os.system("pip install huggingface_hub -q")
+            from huggingface_hub import hf_hub_download
+
+        try:
+            print(f"  Downloading manifest from {self.hf_manifest_repo}...")
+            path = hf_hub_download(
+                repo_id=self.hf_manifest_repo,
+                filename="train_manifest.csv",
+                repo_type="model",
+                token=self.hf_token,
+            )
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, local_path)
+            print(f"  Manifest downloaded: {local_path} ({local_path.stat().st_size / 1e6:.1f} MB)")
+            return True
+        except Exception as e:
+            print(f"  WARNING: Could not download manifest from HF: {e}")
+            return False
+
+    def upload_manifest(self, local_path: Path) -> bool:
+        """Upload train_manifest.csv to HF for use by other notebooks."""
+        return self.upload_to_hf(
+            local_path,
+            self.hf_manifest_repo,
+            "train_manifest.csv",
+            commit_message=f"Upload manifest at {datetime.now().isoformat()}",
+        )
+
+    def download_latest_checkpoint(self, ckpt_dir: Path, model_name: str) -> Optional[Path]:
+        """
+        Download the latest checkpoint from HF if no local checkpoint exists.
+        Returns path to local checkpoint or None.
+        """
+        ckpt_dir = Path(ckpt_dir)
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check local first
+        local = self.find_resume_checkpoint(ckpt_dir)
+        if local is not None:
+            print(f"  Local checkpoint found: {local.name}")
+            return local
+
+        if not self.hf_token:
+            return None
+
+        try:
+            from huggingface_hub import list_repo_files, hf_hub_download
+        except ImportError:
+            os.system("pip install huggingface_hub -q")
+            from huggingface_hub import list_repo_files, hf_hub_download
+
+        try:
+            print(f"  No local checkpoint — checking HF ({self.hf_checkpoint_repo})...")
+            files = list_repo_files(self.hf_checkpoint_repo, repo_type="model", token=self.hf_token)
+            ckpt_files = sorted(
+                [f for f in files if f.startswith(f"checkpoints/{model_name}/checkpoint_epoch_")],
+                key=lambda x: int(x.split("_")[-1].replace(".pt", "")),
+            )
+            if not ckpt_files:
+                # Try best.pt
+                best_path = f"checkpoints/{model_name}/best.pt"
+                if best_path in files:
+                    ckpt_files = [best_path]
+
+            if not ckpt_files:
+                print("  No checkpoint found on HF")
+                return None
+
+            latest = ckpt_files[-1]
+            print(f"  Downloading {latest} from HF...")
+            path = hf_hub_download(
+                repo_id=self.hf_checkpoint_repo,
+                filename=latest,
+                repo_type="model",
+                token=self.hf_token,
+            )
+            local_ckpt = ckpt_dir / Path(latest).name
+            shutil.copy2(path, local_ckpt)
+            print(f"  Checkpoint downloaded: {local_ckpt.name}")
+            return local_ckpt
+        except Exception as e:
+            print(f"  WARNING: Could not download checkpoint from HF: {e}")
+            return None
 
     # ═══════════════════════════════════════════════════════════
     # HuggingFace upload
