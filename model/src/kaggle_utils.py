@@ -348,6 +348,128 @@ class KaggleEnv:
             commit_message=f"Upload manifest at {datetime.now().isoformat()}",
         )
 
+    def rebuild_manifest_from_kaggle(self, local_path: Path) -> bool:
+        """
+        Run rebuild_manifest.py to create a manifest from Kaggle-mounted datasets.
+        Returns True if manifest was created successfully.
+        """
+        local_path = Path(local_path)
+        if local_path.exists() and local_path.stat().st_size > 1000:
+            print(f"  Manifest already exists: {local_path}")
+            return True
+
+        rebuild_script = self.project_root / "rebuild_manifest.py"
+        if not rebuild_script.exists():
+            print(f"  WARNING: {rebuild_script} not found")
+            return False
+
+        print("  Running rebuild_manifest.py to create manifest from Kaggle mounts...")
+        import subprocess
+        try:
+            result = subprocess.run(
+                [sys.executable, str(rebuild_script), "--yes", "--dry-run",
+                 "--input-root", "/kaggle/input"],
+                capture_output=True, text=True, timeout=600,
+                cwd=str(self.project_root),
+            )
+            print(result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout)
+            if result.returncode != 0:
+                print(f"  ERROR: rebuild_manifest.py failed:\n{result.stderr[-1000:]}")
+                return False
+        except subprocess.TimeoutExpired:
+            print("  ERROR: rebuild_manifest.py timed out (10 min)")
+            return False
+
+        # The script saves to split_manifest_rebuilt.json in CWD
+        rebuilt = self.working_dir / "split_manifest_rebuilt.json"
+        if rebuilt.exists():
+            # Convert JSON manifest to CSV format for the dataset code
+            return self._convert_json_manifest_to_csv(rebuilt, local_path)
+        return False
+
+    def _convert_json_manifest_to_csv(self, json_path: Path, csv_path: Path) -> bool:
+        """Convert rebuild_manifest.py JSON output to CSV format for dataset.py."""
+        import hashlib, os
+        with open(json_path) as f:
+            manifest = json.load(f)
+
+        images_dict = manifest.get("images", {})
+        if not images_dict:
+            print("  WARNING: Empty manifest")
+            return False
+
+        # Scan Kaggle mounts to resolve image paths
+        input_root = Path("/kaggle/input")
+        slug_map: Dict[str, Path] = {}
+        if input_root.exists():
+            for base in [input_root, input_root / "datasets"]:
+                if not base.exists():
+                    continue
+                for owner in base.iterdir():
+                    if not owner.is_dir():
+                        continue
+                    for child in owner.iterdir():
+                        if child.is_dir():
+                            slug_map[child.name] = child
+
+        # Build CSV rows
+        rows = []
+        img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
+        shards = set(info.get("shard", "") for info in images_dict.values())
+
+        for shard in sorted(shards):
+            mount = slug_map.get(shard)
+            if mount is None:
+                for slug, path in slug_map.items():
+                    if shard.replace("-", "") in slug.replace("-", "") or slug.replace("-", "") in shard.replace("-", ""):
+                        mount = path
+                        break
+            if mount is None:
+                print(f"  Warning: shard '{shard}' not in mounts")
+                continue
+
+            # Get entries for this shard
+            shard_entries = {k: v for k, v in images_dict.items() if v.get("shard") == shard}
+
+            print(f"  Scanning {shard}...", end=" ", flush=True)
+            count = 0
+            for dirpath, _, filenames in os.walk(str(mount)):
+                for fname in filenames:
+                    if Path(fname).suffix.lower() not in img_exts:
+                        continue
+                    full_path = os.path.join(dirpath, fname)
+                    if os.path.getsize(full_path) == 0:
+                        continue
+                    # Try to match by recomputing image_id
+                    for lbl in ["real", "ai_generated", "deepfake"]:
+                        label_int = {"real": 0, "ai_generated": 1, "deepfake": 2}[lbl]
+                        img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
+                        if img_id in shard_entries:
+                            rows.append({
+                                'image_id': img_id,
+                                'filename': full_path,
+                                'label': lbl,
+                                'source': shard,
+                                'generator': '',
+                                'width': 0,
+                                'height': 0,
+                                'file_size_bytes': os.path.getsize(full_path),
+                                'md5': '',
+                            })
+                            count += 1
+                            break
+            print(f"{count} images")
+
+        if not rows:
+            print("  WARNING: No images resolved")
+            return False
+
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(rows)
+        df.to_csv(csv_path, index=False)
+        print(f"  Manifest CSV created: {csv_path} ({len(df)} rows)")
+        return True
+
     def download_latest_checkpoint(self, ckpt_dir: Path, model_name: str) -> Optional[Path]:
         """
         Download the latest checkpoint from HF if no local checkpoint exists.

@@ -124,21 +124,47 @@ class AIDetectionDataset(Dataset):
             if not p.exists():
                 print(f"  Warning: {p} not found, skipping")
                 continue
+
+            # ── Try CSV first (local/DGX format with filename column) ──
+            df = None
+            is_json_manifest = False
             try:
                 df = pd.read_csv(p, low_memory=False, dtype={'generator': str, 'md5': str})
+                if 'filename' not in df.columns:
+                    df = None  # CSV without filename column — try JSON
             except Exception:
-                try:
-                    df = pd.read_json(p)
-                except Exception:
-                    print(f"  Warning: cannot read {p}")
-                    continue
+                pass
 
-            image_dirs = self._resolve_image_dirs(p, df)
-            if not image_dirs:
+            # ── Try JSON (rebuild_manifest.py format) ──
+            manifest_data = None
+            if df is None:
+                try:
+                    with open(p) as f:
+                        manifest_data = json.load(f)
+                    if "images" not in manifest_data:
+                        manifest_data = None  # Not the expected format
+                except Exception:
+                    pass
+
+            if manifest_data is not None:
+                # New JSON manifest format from rebuild_manifest.py
+                # Has: images = {image_id: {shard, label, label_int, split}, ...}
+                df, image_dirs = self._load_kaggle_manifest(manifest_data)
+                is_json_manifest = True
+            elif df is not None:
+                image_dirs = self._resolve_image_dirs(p, df)
+            else:
+                print(f"  Warning: cannot read {p}")
+                continue
+
+            if df is None or (not is_json_manifest and not image_dirs):
                 continue
 
             for _, row in df.iterrows():
-                img_path = self._resolve_image_path(row, image_dirs)
+                if is_json_manifest:
+                    img_path = Path(row['filename']) if pd.notna(row.get('filename')) else None
+                else:
+                    img_path = self._resolve_image_path(row, image_dirs)
                 if img_path and img_path.exists():
                     size = img_path.stat().st_size
                     if size == 0:
@@ -147,6 +173,94 @@ class AIDetectionDataset(Dataset):
                     label = self._get_label(row)
                     if label is not None:
                         self.samples.append((str(img_path), label))
+
+    def _load_kaggle_manifest(self, manifest_data: dict):
+        """
+        Load images from a JSON manifest (rebuild_manifest.py format) by
+        scanning Kaggle input mounts. Returns (DataFrame, image_dirs).
+        """
+        import os, hashlib
+        images_dict = manifest_data.get("images", {})
+        if not images_dict:
+            return None, []
+
+        # Build a lookup: (shard, label, basename) → manifest entry
+        # rebuild_manifest.py uses: sha1(f"{basename}|{shard}|{label}")[:20]
+        lookup = {}
+        for img_id, info in images_dict.items():
+            shard = info.get("shard", "")
+            label = info.get("label", "")
+            lookup.setdefault((shard, label), {})[img_id] = info
+
+        # Scan Kaggle input mounts
+        input_root = Path("/kaggle/input")
+        resolved = []  # (path, label, label_int, shard)
+
+        if input_root.exists():
+            # Discover mounts: /kaggle/input/{owner}/{slug} or /kaggle/input/datasets/{owner}/{slug}
+            slug_map: Dict[str, Path] = {}
+            for base in [input_root, input_root / "datasets"]:
+                if not base.exists():
+                    continue
+                for owner in base.iterdir():
+                    if not owner.is_dir():
+                        continue
+                    for child in owner.iterdir():
+                        if child.is_dir():
+                            slug_map[child.name] = child
+
+            print(f"  Kaggle mounts: {list(slug_map.keys())}")
+
+            img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
+            # Group manifest entries by shard for efficient lookup
+            shards_needed = set(info.get("shard", "") for info in images_dict.values())
+
+            for shard in sorted(shards_needed):
+                mount = slug_map.get(shard)
+                if mount is None:
+                    # Fuzzy match
+                    for slug, path in slug_map.items():
+                        if shard.replace("-", "") in slug.replace("-", "") or slug.replace("-", "") in shard.replace("-", ""):
+                            mount = path
+                            break
+                if mount is None:
+                    print(f"  Warning: shard '{shard}' not in mounts, skipping")
+                    continue
+
+                # Get all (label → {img_id: info}) for this shard
+                shard_entries = {}
+                for (s, lbl), id_map in lookup.items():
+                    if s == shard:
+                        shard_entries[lbl] = id_map
+
+                print(f"  Scanning {shard}...", end=" ", flush=True)
+                count = 0
+                for dirpath, _, filenames in os.walk(str(mount)):
+                    for fname in filenames:
+                        if Path(fname).suffix.lower() not in img_exts:
+                            continue
+                        full_path = os.path.join(dirpath, fname)
+                        if os.path.getsize(full_path) == 0:
+                            continue
+                        # Try each label for this shard
+                        for lbl, id_map in shard_entries.items():
+                            img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
+                            if img_id in id_map:
+                                info = id_map[img_id]
+                                resolved.append((full_path, lbl, info.get("label_int", 0), shard))
+                                count += 1
+                                break
+                print(f"{count} images")
+
+        if not resolved:
+            print(f"  Warning: No images found in Kaggle mounts")
+            return None, []
+
+        df = pd.DataFrame(resolved, columns=['filename', 'label', 'label_int', 'source'])
+        df['generator'] = ''
+        df['split'] = 'train'
+        print(f"  Loaded {len(df)} images from Kaggle mounts")
+        return df, []
 
     def _resolve_image_dirs(self, metadata_path: Path, df: pd.DataFrame) -> List[Path]:
         # find the nearest ancestor that has an images/ sibling, so manifests
