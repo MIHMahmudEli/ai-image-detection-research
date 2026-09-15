@@ -118,9 +118,17 @@ class KaggleEnv:
             if parent == p:
                 break
             p = parent
-        # Fallback: try known Kaggle dataset paths
+        # Fallback: search all Kaggle input mounts for AGENTS.md or model/
+        if Path("/kaggle/input").exists():
+            for candidate in Path("/kaggle/input").iterdir():
+                if candidate.is_dir() and (
+                    (candidate / "AGENTS.md").exists()
+                    or (candidate / ".git").exists()
+                    or (candidate / "model").is_dir()
+                ):
+                    return candidate
+        # Last resort
         for candidate in [
-            Path("/kaggle/input/ai-image-detection-research"),
             Path("/kaggle/working"),
             Path.cwd().resolve(),
         ]:
