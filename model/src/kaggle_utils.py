@@ -55,11 +55,13 @@ class KaggleEnv:
         import torch
 
         # ── Environment detection ──
+        print("  [1/5] Detecting environment...")
         self.is_kaggle = Path("/kaggle/input").exists()
         self.is_gpu = torch.cuda.is_available()
         self.smoke_test = not self.is_gpu
 
         # ── Project root ──
+        print("  [2/5] Finding project root...")
         if project_root_search:
             self.project_root = self._find_project_root()
         else:
@@ -76,9 +78,11 @@ class KaggleEnv:
             sys.path.insert(0, str(self.project_root / "model"))
 
         # ── Image data resolution ──
+        print("  [3/5] Resolving image paths...")
         self.images_dir = self._resolve_images_dir()
 
         # ── Checkpoints, results, figures ──
+        print("  [4/5] Setting up output directories...")
         self.checkpoints_dir = self.project_root / "model" / "checkpoints"
         mode_dir = "verify" if self.smoke_test else mode
         self.results_dir = self.project_root / "paper" / "result" / mode_dir
@@ -86,6 +90,7 @@ class KaggleEnv:
         self.tables_dir = self.results_dir / "table"
 
         # ── HuggingFace config ──
+        print("  [5/5] Loading HuggingFace config...")
         self.hf_token = self._find_hf_token()
         self.hf_checkpoint_repo = os.environ.get(
             "HF_CHECKPOINT_REPO", "MohsinElis/mfft-checkpoints"
@@ -138,19 +143,23 @@ class KaggleEnv:
 
     def _resolve_images_dir(self) -> Path:
         """Find dataset/images across Kaggle mounts or local."""
-        # Check multiple possible locations
+        # Direct paths first (fast)
         candidates = [
             self.project_root / "dataset" / "images",
+            Path("/kaggle/working/ai-image-detection-research/dataset/images"),
             Path("/kaggle/working/dataset/images"),
         ]
-        # Check Kaggle input mounts
+        # Kaggle: check top-level input mounts only (no recursive scan)
         if self.is_kaggle:
             input_root = Path("/kaggle/input")
-            for mount in input_root.rglob("images"):
-                if mount.is_dir() and any(
-                    mount.glob("**/*.jpg") or mount.glob("**/*.png")
-                ):
-                    candidates.insert(0, mount)
+            if input_root.exists():
+                for mount in input_root.iterdir():
+                    if mount.is_dir():
+                        img_dir = mount / "dataset" / "images"
+                        if img_dir.exists():
+                            candidates.insert(0, img_dir)
+                        elif (mount / "images").is_dir():
+                            candidates.insert(0, mount / "images")
         for c in candidates:
             if c.exists():
                 return c
