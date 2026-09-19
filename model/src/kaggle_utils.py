@@ -431,34 +431,37 @@ class KaggleEnv:
             # Get entries for this shard
             shard_entries = {k: v for k, v in images_dict.items() if v.get("shard") == shard}
 
-            print(f"  Scanning {shard}...", end=" ", flush=True)
-            count = 0
-            for dirpath, _, filenames in os.walk(str(mount)):
-                for fname in filenames:
-                    if Path(fname).suffix.lower() not in img_exts:
-                        continue
-                    full_path = os.path.join(dirpath, fname)
-                    if os.path.getsize(full_path) == 0:
-                        continue
-                    # Try to match by recomputing image_id
-                    for lbl in ["real", "ai_generated", "deepfake"]:
-                        label_int = {"real": 0, "ai_generated": 1, "deepfake": 2}[lbl]
-                        img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
-                        if img_id in shard_entries:
-                            rows.append({
-                                'image_id': img_id,
-                                'filename': full_path,
-                                'label': lbl,
-                                'source': shard,
-                                'generator': '',
-                                'width': 0,
-                                'height': 0,
-                                'file_size_bytes': os.path.getsize(full_path),
-                                'md5': '',
-                            })
-                            count += 1
-                            break
-            print(f"{count} images")
+            # Artifact sub-datasets: use metadata.csv
+            if shard.startswith("artifact-"):
+                count = self._scan_artifact_for_csv(mount, shard, shard_entries, rows)
+            else:
+                print(f"  Scanning {shard}...", end=" ", flush=True)
+                count = 0
+                for dirpath, _, filenames in os.walk(str(mount)):
+                    for fname in filenames:
+                        if Path(fname).suffix.lower() not in img_exts:
+                            continue
+                        full_path = os.path.join(dirpath, fname)
+                        if os.path.getsize(full_path) == 0:
+                            continue
+                        for lbl in ["real", "ai_generated", "deepfake"]:
+                            label_int = {"real": 0, "ai_generated": 1, "deepfake": 2}[lbl]
+                            img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
+                            if img_id in shard_entries:
+                                rows.append({
+                                    'image_id': img_id,
+                                    'filename': full_path,
+                                    'label': lbl,
+                                    'source': shard,
+                                    'generator': '',
+                                    'width': 0,
+                                    'height': 0,
+                                    'file_size_bytes': os.path.getsize(full_path),
+                                    'md5': '',
+                                })
+                                count += 1
+                                break
+                print(f"{count} images")
 
         if not rows:
             print("  WARNING: No images resolved")
@@ -469,6 +472,59 @@ class KaggleEnv:
         df.to_csv(csv_path, index=False)
         print(f"  Manifest CSV created: {csv_path} ({len(df)} rows)")
         return True
+
+    def _scan_artifact_for_csv(self, mount_dir: Path, shard: str, shard_entries: dict, rows: list) -> int:
+        """Scan artifact sub-dataset using metadata.csv for CSV conversion."""
+        import hashlib, os, pandas as pd
+        csv_path = mount_dir / "metadata.csv"
+        if not csv_path.exists():
+            for child in mount_dir.iterdir():
+                if child.is_dir() and (child / "metadata.csv").exists():
+                    csv_path = child / "metadata.csv"
+                    break
+        if not csv_path.exists():
+            print(f"  Warning: no metadata.csv for {shard}")
+            return 0
+
+        try:
+            df = pd.read_csv(csv_path, low_memory=False)
+        except Exception as e:
+            print(f"  Warning: cannot read {csv_path}: {e}")
+            return 0
+
+        count = 0
+        for _, r in df.iterrows():
+            target = int(r.get("target", 0))
+            if target == 0:
+                continue
+            img_path = str(r.get("image_path", r.get("filename", "")))
+            if not img_path:
+                continue
+            if not os.path.isabs(img_path):
+                img_path = str(mount_dir / img_path)
+            if not os.path.exists(img_path):
+                continue
+            if os.path.getsize(img_path) == 0:
+                continue
+            fname = os.path.basename(img_path)
+            for lbl, id_map in shard_entries.items():
+                img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
+                if img_id in id_map:
+                    rows.append({
+                        'image_id': img_id,
+                        'filename': img_path,
+                        'label': lbl,
+                        'source': shard,
+                        'generator': '',
+                        'width': 0,
+                        'height': 0,
+                        'file_size_bytes': os.path.getsize(img_path),
+                        'md5': '',
+                    })
+                    count += 1
+                    break
+        print(f"  Scanning {shard}... {count} images")
+        return count
 
     def download_latest_checkpoint(self, ckpt_dir: Path, model_name: str) -> Optional[Path]:
         """

@@ -236,6 +236,58 @@ def discover_and_scan_mounts(input_root: Path) -> Dict[str, List[dict]]:
                     except OSError:
                         continue
 
+    def _scan_artifact_metadata(mount_dir, slug, label):
+        """Scan artifact sub-dataset using its metadata.csv."""
+        import pandas as pd
+        csv_path = mount_dir / "metadata.csv"
+        if not csv_path.exists():
+            # Try one level deeper
+            for child in mount_dir.iterdir():
+                if child.is_dir() and (child / "metadata.csv").exists():
+                    csv_path = child / "metadata.csv"
+                    break
+        if not csv_path.exists():
+            return []
+
+        try:
+            df = pd.read_csv(csv_path, low_memory=False)
+        except Exception as e:
+            print(f"  WARNING: Cannot read {csv_path}: {e}")
+            return []
+
+        rows = []
+        # Columns: filename, image_path, target, category
+        # target: 0=real, 1-6=fake — we only want fake (target > 0)
+        for _, r in df.iterrows():
+            target = int(r.get("target", 0))
+            if target == 0:
+                continue  # Skip real images from artifact
+            img_path = str(r.get("image_path", r.get("filename", "")))
+            if not img_path:
+                continue
+            # Make absolute if relative
+            if not os.path.isabs(img_path):
+                img_path = str(mount_dir / img_path)
+            if not os.path.exists(img_path):
+                continue
+            try:
+                if os.path.getsize(img_path) == 0:
+                    continue
+            except OSError:
+                continue
+            fname = os.path.basename(img_path)
+            img_id = stable_image_id(fname, slug, label)
+            group_id = extract_group_id(img_path, slug)
+            rows.append({
+                "image_id": img_id,
+                "shard": slug,
+                "label": label,
+                "label_int": LABEL_MAP[label],
+                "rel_path": img_path,
+                "group_id": group_id,
+            })
+        return rows
+
     shard_rows: Dict[str, List[dict]] = {}
     for slug, (label, subdir) in KAGGLE_DATASETS.items():
         if slug not in matched_paths:
@@ -246,23 +298,25 @@ def discover_and_scan_mounts(input_root: Path) -> Dict[str, List[dict]]:
             image_root = mount_dir
 
         print(f"  Scanning {slug}...", end=" ", flush=True)
-        rows = []
-        count = 0
-        for img_path in _fast_scan(str(image_root)):
-            img_id = stable_image_id(os.path.basename(img_path), slug, label)
-            group_id = extract_group_id(img_path, slug)
-            rows.append({
-                "image_id": img_id,
-                "shard": slug,
-                "label": label,
-                "label_int": LABEL_MAP[label],
-                "rel_path": img_path,
-                "group_id": group_id,
-            })
-            count += 1
-            if count % 10000 == 0:
-                print(f"{count}...", end=" ", flush=True)
-        print(f"{count} images ({label})", flush=True)
+
+        # Artifact sub-datasets use metadata.csv — read it directly
+        if slug.startswith("artifact-"):
+            rows = _scan_artifact_metadata(mount_dir, slug, label)
+        else:
+            rows = []
+            for img_path in _fast_scan(str(image_root)):
+                img_id = stable_image_id(os.path.basename(img_path), slug, label)
+                group_id = extract_group_id(img_path, slug)
+                rows.append({
+                    "image_id": img_id,
+                    "shard": slug,
+                    "label": label,
+                    "label_int": LABEL_MAP[label],
+                    "rel_path": img_path,
+                    "group_id": group_id,
+                })
+
+        print(f"{len(rows)} images ({label})", flush=True)
         shard_rows[slug] = rows
 
     return shard_rows

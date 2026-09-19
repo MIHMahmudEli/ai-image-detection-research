@@ -40,20 +40,25 @@ CLASS_NAMES = ["real", "ai_generated", "deepfake"]
 # ── Image discovery ──
 IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
-# ── Kaggle mount slug → (label, image_subdir inside the mount) ──
+# ── Training datasets (attached to Kaggle inputs) ──
+# Tier 1: TRAINING — these are seen during training
+# Tier 2: CROSS-DOMAIN — held out completely, used for generalization tests
+# Tier 3: NOT USED — too large or redundant
+#
+# Kaggle mount slug → (label, image_subdir inside the mount)
 KAGGLE_DATASETS = {
-    "stable-diffusion":                 ("ai_generated", "Stable Diffusion/images"),
+    # ── Tier 1: TRAINING SET ──
+    # Real images
     "places365":                        ("real",          "train"),
-    "open-images-v7-dataset":           ("real",          "Open-Images-V7-Dataset/open-images-v7/train/images"),
-    "ntire2026":                        ("real",          "NTIRE2026"),
-    "midjourney":                       ("ai_generated",  "Midjourney/Datasetfordream"),
     "mfft-real":                        ("real",          "Mfft_real"),
-    "genimage-ai":                      ("ai_generated",  "genimage_ai"),
+
+    # Deepfake (face manipulation)
     "faceforensics":                    ("deepfake",      "cropped_images"),
     "dfdc-faces-of-the-train-sample":   ("deepfake",      "train/fake"),
-    "dall-e3":                          ("ai_generated",  "DALL-E3"),
-    "celebdf-v2image-dataset":          ("deepfake",      "Celeb_V2"),
-    # ── awsaf49/artifact-dataset sub-datasets (AI-generated) ──
+
+    # ── Artifact sub-datasets (AI-generated, 25 generators) ──
+    # Each has metadata.csv with columns: filename, image_path, target, category
+    # target: 0=real, 1-6=fake classes
     "artifact-afhq":                    ("ai_generated",  "images"),
     "artifact-big_gan":                 ("ai_generated",  "images"),
     "artifact-celebahq":                ("ai_generated",  "images"),
@@ -84,4 +89,13 @@ KAGGLE_DATASETS = {
     "artifact-vq_diffusion":            ("ai_generated",  "images"),
 }
 
+# ── Cross-domain validation datasets (NEVER seen during training) ──
+# These are held out completely to test generalization to unseen generators
+CROSS_DOMAIN_DATASETS = {
+    "dall-e3":                          ("ai_generated",  "DALL-E3"),
+    "celebdf-v2image-dataset":          ("deepfake",      "Celeb_V2"),
+    "genimage-ai":                      ("ai_generated",  "genimage_ai"),
+}
+
+# ── Kaggle mount root ──
 KAGGLE_INPUT_ROOT = Path("/kaggle/input")

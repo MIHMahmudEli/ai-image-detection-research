@@ -178,14 +178,15 @@ class AIDetectionDataset(Dataset):
         """
         Load images from a JSON manifest (rebuild_manifest.py format) by
         scanning Kaggle input mounts. Returns (DataFrame, image_dirs).
+        Handles both regular datasets (directory scan) and artifact datasets
+        (metadata.csv per generator).
         """
         import os, hashlib
         images_dict = manifest_data.get("images", {})
         if not images_dict:
             return None, []
 
-        # Build a lookup: (shard, label, basename) → manifest entry
-        # rebuild_manifest.py uses: sha1(f"{basename}|{shard}|{label}")[:20]
+        # Build a lookup: (shard, label) → {img_id: info}
         lookup = {}
         for img_id, info in images_dict.items():
             shard = info.get("shard", "")
@@ -197,7 +198,6 @@ class AIDetectionDataset(Dataset):
         resolved = []  # (path, label, label_int, shard)
 
         if input_root.exists():
-            # Discover mounts: /kaggle/input/{owner}/{slug} or /kaggle/input/datasets/{owner}/{slug}
             slug_map: Dict[str, Path] = {}
             for base in [input_root, input_root / "datasets"]:
                 if not base.exists():
@@ -212,13 +212,11 @@ class AIDetectionDataset(Dataset):
             print(f"  Kaggle mounts: {list(slug_map.keys())}")
 
             img_exts = {'.jpg', '.jpeg', '.png', '.webp'}
-            # Group manifest entries by shard for efficient lookup
             shards_needed = set(info.get("shard", "") for info in images_dict.values())
 
             for shard in sorted(shards_needed):
                 mount = slug_map.get(shard)
                 if mount is None:
-                    # Fuzzy match
                     for slug, path in slug_map.items():
                         if shard.replace("-", "") in slug.replace("-", "") or slug.replace("-", "") in shard.replace("-", ""):
                             mount = path
@@ -227,30 +225,33 @@ class AIDetectionDataset(Dataset):
                     print(f"  Warning: shard '{shard}' not in mounts, skipping")
                     continue
 
-                # Get all (label → {img_id: info}) for this shard
                 shard_entries = {}
                 for (s, lbl), id_map in lookup.items():
                     if s == shard:
                         shard_entries[lbl] = id_map
 
-                print(f"  Scanning {shard}...", end=" ", flush=True)
-                count = 0
-                for dirpath, _, filenames in os.walk(str(mount)):
-                    for fname in filenames:
-                        if Path(fname).suffix.lower() not in img_exts:
-                            continue
-                        full_path = os.path.join(dirpath, fname)
-                        if os.path.getsize(full_path) == 0:
-                            continue
-                        # Try each label for this shard
-                        for lbl, id_map in shard_entries.items():
-                            img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
-                            if img_id in id_map:
-                                info = id_map[img_id]
-                                resolved.append((full_path, lbl, info.get("label_int", 0), shard))
-                                count += 1
-                                break
-                print(f"{count} images")
+                # Artifact sub-datasets: use metadata.csv
+                if shard.startswith("artifact-"):
+                    count = self._load_artifact_metadata(mount, shard, shard_entries, resolved)
+                else:
+                    # Regular dataset: scan directories
+                    count = 0
+                    print(f"  Scanning {shard}...", end=" ", flush=True)
+                    for dirpath, _, filenames in os.walk(str(mount)):
+                        for fname in filenames:
+                            if Path(fname).suffix.lower() not in img_exts:
+                                continue
+                            full_path = os.path.join(dirpath, fname)
+                            if os.path.getsize(full_path) == 0:
+                                continue
+                            for lbl, id_map in shard_entries.items():
+                                img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
+                                if img_id in id_map:
+                                    info = id_map[img_id]
+                                    resolved.append((full_path, lbl, info.get("label_int", 0), shard))
+                                    count += 1
+                                    break
+                    print(f"{count} images")
 
         if not resolved:
             print(f"  Warning: No images found in Kaggle mounts")
@@ -261,6 +262,50 @@ class AIDetectionDataset(Dataset):
         df['split'] = 'train'
         print(f"  Loaded {len(df)} images from Kaggle mounts")
         return df, []
+
+    def _load_artifact_metadata(self, mount_dir: Path, shard: str, shard_entries: dict, resolved: list) -> int:
+        """Load images from artifact sub-dataset using its metadata.csv."""
+        import pandas as pd
+        csv_path = mount_dir / "metadata.csv"
+        if not csv_path.exists():
+            for child in mount_dir.iterdir():
+                if child.is_dir() and (child / "metadata.csv").exists():
+                    csv_path = child / "metadata.csv"
+                    break
+        if not csv_path.exists():
+            print(f"  Warning: no metadata.csv for {shard}")
+            return 0
+
+        try:
+            df = pd.read_csv(csv_path, low_memory=False)
+        except Exception as e:
+            print(f"  Warning: cannot read {csv_path}: {e}")
+            return 0
+
+        count = 0
+        for _, r in df.iterrows():
+            target = int(r.get("target", 0))
+            if target == 0:
+                continue  # Skip real images
+            img_path = str(r.get("image_path", r.get("filename", "")))
+            if not img_path:
+                continue
+            if not os.path.isabs(img_path):
+                img_path = str(mount_dir / img_path)
+            if not os.path.exists(img_path):
+                continue
+            if os.path.getsize(img_path) == 0:
+                continue
+            fname = os.path.basename(img_path)
+            for lbl, id_map in shard_entries.items():
+                img_id = hashlib.sha1(f"{fname}|{shard}|{lbl}".encode()).hexdigest()[:20]
+                if img_id in id_map:
+                    info = id_map[img_id]
+                    resolved.append((img_path, lbl, info.get("label_int", 0), shard))
+                    count += 1
+                    break
+        print(f"  Scanning {shard}... {count} images")
+        return count
 
     def _resolve_image_dirs(self, metadata_path: Path, df: pd.DataFrame) -> List[Path]:
         # find the nearest ancestor that has an images/ sibling, so manifests
