@@ -25,8 +25,12 @@ VAL_SPLIT = 0.15
 TEST_SPLIT = 0.15
 
 # ── Rebuild manifest targets (FIX 1–4) ──
-TARGET_TOTAL_IMAGES = 10_000_000  # Use ALL available images (10M cap is safety limit)
-TARGET_CLASS_RATIOS = {"real": 0.474, "ai_generated": 0.438, "deepfake": 0.088}
+# Balanced training: cap each class to avoid bias toward any one type
+# AI-generated: ~1.5M available (artifact 25 generators)
+# Real: ~1.8M available (places365) — cap to match AI count
+# Deepfake: ~125K available (faceforensics + dfdc)
+TARGET_TOTAL_IMAGES = 1_800_000  # Balanced: ~600K per class
+TARGET_CLASS_RATIOS = {"real": 0.33, "ai_generated": 0.33, "deepfake": 0.34}
 TEST_MIN_PER_SHARD = 300
 MAX_FRAMES_PER_VIDEO = 20
 
@@ -48,9 +52,8 @@ IMG_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 # Kaggle mount slug → (label, image_subdir inside the mount)
 KAGGLE_DATASETS = {
     # ── Tier 1: TRAINING SET ──
-    # Real images
+    # Real images (capped at ~600K to match AI-generated count)
     "places365":                        ("real",          "train"),
-    "mfft-real":                        ("real",          "Mfft_real"),
 
     # Deepfake (face manipulation)
     "faceforensics":                    ("deepfake",      "cropped_images"),
