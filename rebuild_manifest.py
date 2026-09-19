@@ -829,9 +829,13 @@ def _verify_manifest(manifest: dict):
     print(f"{'#'*72}")
 
     # 1. Total
-    print(f"\n  [1] Total images: {total:,} (target: {TARGET_TOTAL_IMAGES:,})")
-    assert abs(total - TARGET_TOTAL_IMAGES) / TARGET_TOTAL_IMAGES < 0.02, \
-        f"Total {total:,} deviates >2% from target {TARGET_TOTAL_IMAGES:,}"
+    total_avail = sum(manifest.get("per_shard_allocation", {}).values())
+    print(f"\n  [1] Total images: {total:,} (target: {TARGET_TOTAL_IMAGES:,}, available: {total_avail:,})")
+    if TARGET_TOTAL_IMAGES >= total_avail:
+        print(f"  [1] Using ALL available images (target >= available)")
+    else:
+        assert abs(total - TARGET_TOTAL_IMAGES) / TARGET_TOTAL_IMAGES < 0.02, \
+            f"Total {total:,} deviates >2% from target {TARGET_TOTAL_IMAGES:,}"
 
     # 2. Class ratios
     for cls, expected_ratio in TARGET_CLASS_RATIOS.items():

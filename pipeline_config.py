@@ -25,7 +25,7 @@ VAL_SPLIT = 0.15
 TEST_SPLIT = 0.15
 
 # ── Rebuild manifest targets (FIX 1–4) ──
-TARGET_TOTAL_IMAGES = 650_000
+TARGET_TOTAL_IMAGES = 10_000_000  # Use ALL available images (10M cap is safety limit)
 TARGET_CLASS_RATIOS = {"real": 0.474, "ai_generated": 0.438, "deepfake": 0.088}
 TEST_MIN_PER_SHARD = 300
 MAX_FRAMES_PER_VIDEO = 20
