@@ -54,10 +54,17 @@ KAGGLE_DATASETS = {
     # ── Tier 1: TRAINING SET ──
     # Real images (capped at ~600K to match AI-generated count)
     "places365":                        ("real",          "train"),
+    "open-images-v7-dataset":           ("real",          ""),
+    "mfft-real":                        ("real",          ""),
 
     # Deepfake (face manipulation)
     "faceforensics":                    ("deepfake",      "cropped_images"),
     "dfdc-faces-of-the-train-sample":   ("deepfake",      "train/fake"),
+
+    # AI-Generated
+    "stable-diffusion":                 ("ai_generated",  ""),
+    "ntire2026":                        ("ai_generated",  ""),
+    "midjourney":                       ("ai_generated",  ""),
 
     # ── Artifact sub-datasets (AI-generated, 25 generators) ──
     # Each has metadata.csv with columns: filename, image_path, target, category
