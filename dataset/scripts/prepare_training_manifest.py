@@ -29,7 +29,6 @@ METADATA = REPO / "dataset" / "metadata"
 
 # directory names that hold REAL/original frames inside deepfake datasets
 DEEPFAKE_REAL_HINTS = {
-    "CelebDF_V2": ["Celeb-real", "YouTube-real", "real"],
     "FaceForensics": ["original_sequences", "original", "real"],
     "DFDC": ["real", "REAL", "original"],
 }
@@ -86,6 +85,17 @@ def main():
         df = df.drop(index=bg[dup_mask].index)
         print(f"  Dropped {int(dup_mask.sum()):,} 'biggan' rows duplicated "
               f"in 'genimage_biggan'")
+
+    # --- 0.5. drop strictly held-out datasets ---
+    # To prove zero-shot cross-domain generalization, these datasets must NEVER be seen in training
+    held_out_sources = ["dalle3", "celebdf"]
+    
+    # Also drop any genimage sources (e.g. genimage_biggan, genimage_stylegan, etc)
+    drop_mask = df["source"].isin(held_out_sources) | df["source"].str.startswith("genimage_", na=False)
+    
+    if drop_mask.any():
+        df = df[~drop_mask]
+        print(f"  Dropped {int(drop_mask.sum()):,} rows from strictly held-out datasets (DALL-E 3, CelebDF, GenImage)")
 
     # --- 1. cap Places365 ---
     if args.cap_places365 > 0:
