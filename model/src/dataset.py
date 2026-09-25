@@ -76,6 +76,43 @@ class ImageTransform:
         return self.transform(img.convert("RGB"))
 
 
+def map_kaggle_path(source: str, fn: str) -> str:
+    """Map a manifest filename and source to its mounted path under /kaggle/input/."""
+    fn = fn.replace('\\', '/').strip('/')
+    if fn.startswith('/kaggle/input/'):
+        return fn
+    if source == 'places365':
+        p = fn[len('Places365/'):] if fn.startswith('Places365/') else fn
+        return f'/kaggle/input/places365/{p}'
+    elif source == 'faceforensics':
+        p = fn[len('FaceForensics/'):] if fn.startswith('FaceForensics/') else fn
+        return f'/kaggle/input/faceforensics/{p}'
+    elif source in ('dfdc', 'dfdc_real'):
+        p = fn
+        for prefix in ['DFDC/Dataset/', 'DFDC/']:
+            if p.startswith(prefix):
+                p = p[len(prefix):]
+                break
+        return f'/kaggle/input/dfdc-faces-of-the-train-sample/train/{p}' if not p.startswith('train/') else f'/kaggle/input/dfdc-faces-of-the-train-sample/{p}'
+    elif source == 'pexels_unsplash':
+        p = fn[len('real/'):] if fn.startswith('real/') else fn
+        return f'/kaggle/input/mfft-real/Mfft_real/{p}'
+    elif source == 'stable_diffusion':
+        return f'/kaggle/input/stable-diffusion/{fn}'
+    elif source == 'open_images_v7':
+        return f'/kaggle/input/open-images-v7-dataset/{fn}'
+    elif source == 'ntire2026':
+        return f'/kaggle/input/ntire2026/{fn}'
+    elif source == 'midjourney':
+        return f'/kaggle/input/midjourney/{fn}'
+    elif source == 'glide':
+        return f'/kaggle/input/genimage-ai/{fn}'
+    elif source == 'imagenet':
+        p = fn if fn.startswith('genimage_ai/') else f'genimage_ai/{fn}'
+        return f'/kaggle/input/genimage-ai/{p}'
+    return f'/kaggle/input/{source}/{fn}'
+
+
 class AIDetectionDataset(Dataset):
     """
     Dataset for AI-generated image detection.
@@ -152,6 +189,18 @@ class AIDetectionDataset(Dataset):
                 df, image_dirs = self._load_kaggle_manifest(manifest_data)
                 is_json_manifest = True
             elif df is not None:
+                # Fast Kaggle mapping — avoids scanning millions of files over FUSE
+                if Path("/kaggle/input").exists():
+                    print(f"  [Kaggle] Resolving {len(df):,} images from mounted inputs...")
+                    LABEL_MAP = {'real': 0, 'ai_generated': 1, 'deepfake': 2}
+                    filenames = df['filename'].tolist()
+                    labels = df['label'].tolist()
+                    sources = df['source'].tolist() if 'source' in df.columns else [''] * len(df)
+                    for fn, lbl, src in zip(filenames, labels, sources):
+                        img_path = map_kaggle_path(str(src), str(fn))
+                        label_int = LABEL_MAP.get(str(lbl).lower(), 1)
+                        self.samples.append((img_path, label_int))
+                    continue
                 image_dirs = self._resolve_image_dirs(p, df)
             else:
                 print(f"  Warning: cannot read {p}")
