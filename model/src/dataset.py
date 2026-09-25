@@ -78,9 +78,13 @@ class ImageTransform:
 
 def map_kaggle_path(source: str, fn: str) -> str:
     """Map a manifest filename and source to its mounted path under /kaggle/input/."""
-    fn = fn.replace('\\', '/').strip('/')
-    if fn.startswith('/kaggle/input/'):
-        return fn
+    fn = fn.replace('\\', '/')
+    if '/kaggle/input/' in fn:
+        idx = fn.find('/kaggle/input/')
+        return fn[idx:]
+    if fn.startswith('kaggle/input/'):
+        return '/' + fn
+    fn = fn.strip('/')
     if source == 'places365':
         p = fn[len('Places365/'):] if fn.startswith('Places365/') else fn
         return f'/kaggle/input/places365/{p}'
@@ -137,6 +141,7 @@ class AIDetectionDataset(Dataset):
         self.metadata_paths = metadata_paths
         self._corrupted_files = []
         self._skipped_zero_byte = 0
+        self.size = size
 
         self._load_all_metadata()
 
